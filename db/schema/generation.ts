@@ -35,7 +35,7 @@ export const themeStates = pgTable(
   "theme_state",
   {
     id: text("id")
-      .primaryKey()
+      .notNull()
       .$defaultFn(() => crypto.randomUUID()),
     storeId: text("storeId")
       .notNull()
