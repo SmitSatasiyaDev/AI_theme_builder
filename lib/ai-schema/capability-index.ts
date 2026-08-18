@@ -24,6 +24,38 @@
  * hand-maintained, so it cannot drift either.
  */
 
+import type { SectionSchema, BlockSchema, SchemaCatalog } from "./types";
+
+export interface SectionIndexEntry {
+    id: string;
+    label: string;
+    category: string;
+    tags: string[];
+    summary: string;
+    allowed_on: string[];
+    hasBlocks: boolean;
+    allowedBlockCount: number;
+    maxBlocks: number | null;
+}
+
+export interface BlockIndexEntry {
+    id: string;
+    label: string;
+    category: string;
+    tags: string[];
+    summary: string;
+    scope: "local" | "standalone";
+    usedBySectionIds: string[];
+}
+
+export interface CapabilityIndex {
+    builtAt: string | null;
+    sectionCount: number;
+    blockCount: number;
+    sections: SectionIndexEntry[];
+    blocks: BlockIndexEntry[];
+}
+
 /**
  * A block is "local" if only one section's allowed_blocks references it —
  * i.e. it only makes sense in that one context (e.g. "tab" only inside
@@ -37,25 +69,25 @@
  * section's allowed_blocks named it, so this scope value doesn't gate
  * anything yet, it just documents the relationship for later phases/humans.
  */
-function computeBlockSectionUsage(sectionSchemas) {
-    const usage = new Map(); // blockId -> Set(sectionId)
+export function computeBlockSectionUsage(sectionSchemas: SectionSchema[]): Map<string, Set<string>> {
+    const usage = new Map<string, Set<string>>(); // blockId -> Set(sectionId)
     for (const section of sectionSchemas) {
         const allowed = Array.isArray(section.allowed_blocks)
             ? section.allowed_blocks
-            : (section.allowed_blocks && typeof section.allowed_blocks === 'object'
+            : (section.allowed_blocks && typeof section.allowed_blocks === "object"
                 ? Object.keys(section.allowed_blocks)
                 : []);
         for (const blockId of allowed) {
             if (!usage.has(blockId)) usage.set(blockId, new Set());
-            usage.get(blockId).add(section.id);
+            usage.get(blockId)!.add(section.id);
         }
     }
     return usage;
 }
 
-function buildSectionIndex(sectionSchemas) {
-    const seen = new Set();
-    const entries = [];
+function buildSectionIndex(sectionSchemas: SectionSchema[]): SectionIndexEntry[] {
+    const seen = new Set<string>();
+    const entries: SectionIndexEntry[] = [];
     for (const section of sectionSchemas) {
         if (!section || !section.id) continue;
         if (seen.has(section.id)) {
@@ -66,30 +98,30 @@ function buildSectionIndex(sectionSchemas) {
 
         const allowedBlocksList = Array.isArray(section.allowed_blocks)
             ? section.allowed_blocks
-            : (section.allowed_blocks && typeof section.allowed_blocks === 'object'
+            : (section.allowed_blocks && typeof section.allowed_blocks === "object"
                 ? Object.keys(section.allowed_blocks)
                 : []);
 
         entries.push({
             id: section.id,
             label: section.label || section.id,
-            category: section.category || 'misc',
+            category: section.category || "misc",
             tags: Array.isArray(section.tags) ? section.tags : [],
-            summary: section.purpose || '',
+            summary: section.purpose || "",
             allowed_on: Array.isArray(section.allowed_on) ? section.allowed_on : [],
             hasBlocks: allowedBlocksList.length > 0,
             allowedBlockCount: allowedBlocksList.length,
-            maxBlocks: typeof section.max_blocks === 'number' ? section.max_blocks : null
+            maxBlocks: typeof section.max_blocks === "number" ? section.max_blocks : null
         });
     }
     return entries;
 }
 
-function buildBlockIndex(blockSchemas, sectionSchemas) {
+function buildBlockIndex(blockSchemas: BlockSchema[], sectionSchemas: SectionSchema[]): BlockIndexEntry[] {
     // Last-one-wins dedup, matching validateOutput()'s existing
     // `new Map(blockSchemas.map(b => [b.id, b]))` semantics exactly — see
     // PHASE2_REPORT.md for the duplicate "row" id this resolves.
-    const byId = new Map();
+    const byId = new Map<string, BlockSchema>();
     for (const block of blockSchemas) {
         if (!block || !block.id) continue;
         byId.set(block.id, block);
@@ -97,16 +129,16 @@ function buildBlockIndex(blockSchemas, sectionSchemas) {
 
     const usage = computeBlockSectionUsage(sectionSchemas);
 
-    const entries = [];
+    const entries: BlockIndexEntry[] = [];
     for (const [id, block] of byId) {
         const usedBy = [...(usage.get(id) || [])];
         entries.push({
             id,
             label: block.label || id,
-            category: block.category || 'misc',
+            category: block.category || "misc",
             tags: Array.isArray(block.tags) ? block.tags : [],
-            summary: block.purpose || '',
-            scope: usedBy.length === 1 ? 'local' : 'standalone',
+            summary: block.purpose || "",
+            scope: usedBy.length === 1 ? "local" : "standalone",
             usedBySectionIds: usedBy
         });
     }
@@ -117,7 +149,7 @@ function buildBlockIndex(blockSchemas, sectionSchemas) {
  * schemas: { globalSchema, sectionSchemas, blockSchemas } — as returned by
  * loadAllSchemasFromDisk()/loadSchemas() in example-implementation.js.
  */
-function buildCapabilityIndex(schemas) {
+export function buildCapabilityIndex(schemas: SchemaCatalog): CapabilityIndex {
     return {
         builtAt: null, // filled in only by the CLI writer below; buildCapabilityIndex() itself stays a pure function (no Date.now() side effect) so it's safe to call from tests/retrieval on every request
         sectionCount: schemas.sectionSchemas.length,
@@ -134,4 +166,3 @@ function buildCapabilityIndex(schemas) {
 // neither of which apply in this web app. buildCapabilityIndex() itself was
 // always the single source of truth used at runtime (see file-level
 // comment above) — this port changes nothing about that.
-module.exports = { buildCapabilityIndex, computeBlockSectionUsage };

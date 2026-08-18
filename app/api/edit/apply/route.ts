@@ -6,9 +6,9 @@ import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
-
-const { loadThemeState } = require("@/lib/ai-schema/theme-state");
-const { loadSession, parseSessionId } = require("@/lib/ai-schema/conversation-session");
+import { loadThemeState } from "@/lib/ai-schema/theme-state";
+import { loadSession, parseSessionId } from "@/lib/ai-schema/conversation-session";
+// apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
 
 type ResolvedTarget = { templateName?: string | null; type?: string | null } | null;

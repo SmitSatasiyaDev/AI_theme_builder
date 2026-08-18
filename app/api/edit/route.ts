@@ -3,11 +3,10 @@ import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
-
-const { loadSchemas } = require("@/lib/ai-schema/ai-client");
-const { buildThemeState, loadThemeState, composeThemeStateId } = require("@/lib/ai-schema/theme-state");
-const { composeSessionId, parseSessionId } = require("@/lib/ai-schema/conversation-session");
-const { runConversationalEdit } = require("@/lib/ai-schema/conversational-edit");
+import { loadSchemas } from "@/lib/ai-schema/ai-client";
+import { buildThemeState, loadThemeState, composeThemeStateId } from "@/lib/ai-schema/theme-state";
+import { composeSessionId, parseSessionId } from "@/lib/ai-schema/conversation-session";
+import { runConversationalEdit } from "@/lib/ai-schema/conversational-edit";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -76,7 +75,7 @@ export async function POST(req: NextRequest) {
       requestId: sessionId
     });
 
-    return NextResponse.json({ sessionId, ...result });
+    return NextResponse.json(result);
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: messageText }, { status: 502 });

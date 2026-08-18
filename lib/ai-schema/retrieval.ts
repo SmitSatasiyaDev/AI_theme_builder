@@ -34,9 +34,10 @@
  *                                             v
  *                                     return the selected subset
  */
-const instrumentation = require('./instrumentation');
-const { buildCapabilityIndex } = require('./capability-index');
-const RULES = require('./schema-data/retrieval-rules.json');
+import * as instrumentation from "./instrumentation";
+import { buildCapabilityIndex } from "./capability-index";
+import RULES from "./schema-data/retrieval-rules.json";
+import type { SchemaCatalog, SectionSchema, RetrievedSchemaCatalog, RuleMatch } from "./types";
 
 // Tied to an existing, already-hardcoded invariant in buildSystemPrompt()'s
 // prose rules ("MUST use at least 8 different section types in the 10
@@ -47,8 +48,8 @@ const RULES = require('./schema-data/retrieval-rules.json');
 // requirement in the current prompt (e.g. "product" is explicitly always
 // exactly one section - main-product - by rule 12), so they get a much
 // lower floor: just "did we find at least one relevant, eligible section."
-const MIN_SECTIONS_FLOOR = { index: 8 };
-const DEFAULT_MIN_SECTIONS_FLOOR = 1;
+export const MIN_SECTIONS_FLOOR: Record<string, number> = { index: 8 };
+export const DEFAULT_MIN_SECTIONS_FLOOR = 1;
 
 // Discovered while implementing retrieval: most sections declare "product"
 // in allowed_on too (they're valid ADDITIONS to a product page, not
@@ -66,10 +67,17 @@ const DEFAULT_MIN_SECTIONS_FLOOR = 1;
 // logging, just not for selection) rather than running the general
 // floor/fallback logic — this is exactly "preserve the existing hardcoded
 // default behavior where appropriate" (Phase 2 spec §11).
-const FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE = { product: 'main-product', 'footer-group': 'footer' };
+export const FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE: Record<string, string> = { product: "main-product", "footer-group": "footer" };
 
-function normalize(text) {
-    return (text || '').toLowerCase();
+function normalize(text: string | undefined): string {
+    return (text || "").toLowerCase();
+}
+
+export interface MatchRulesResult {
+    matchedCategories: string[];
+    matchedTags: string[];
+    ruleMatches: RuleMatch[];
+    defaultApplied: boolean;
 }
 
 /**
@@ -77,11 +85,11 @@ function normalize(text) {
  * every rule that hit (for instrumentation/debugging), plus the union of
  * categories/tags they contributed.
  */
-function matchRules(userPrompt, rulesConfig = RULES) {
+export function matchRules(userPrompt: string, rulesConfig: typeof RULES = RULES): MatchRulesResult {
     const lower = normalize(userPrompt);
-    const matchedCategories = new Set();
-    const matchedTags = new Set();
-    const ruleMatches = [];
+    const matchedCategories = new Set<string>();
+    const matchedTags = new Set<string>();
+    const ruleMatches: RuleMatch[] = [];
 
     for (const rule of rulesConfig.rules) {
         const hitKeyword = rule.keywords.find(k => lower.includes(k.toLowerCase()));
@@ -110,7 +118,7 @@ function matchRules(userPrompt, rulesConfig = RULES) {
     };
 }
 
-function isEligibleForTemplate(sectionEntry, templateName) {
+export function isEligibleForTemplate(sectionEntry: { allowed_on?: string[] }, templateName: string): boolean {
     if (!Array.isArray(sectionEntry.allowed_on) || sectionEntry.allowed_on.length === 0) {
         // Defensive default: a schema with no declared allowed_on restricts
         // nothing today (none of the current 16 are actually missing it),
@@ -121,8 +129,22 @@ function isEligibleForTemplate(sectionEntry, templateName) {
     return sectionEntry.allowed_on.includes(templateName);
 }
 
-function schemaCharCount(sectionSchemas, blockSchemas) {
+function schemaCharCount(sectionSchemas: unknown, blockSchemas: unknown): number {
     return JSON.stringify(sectionSchemas).length + JSON.stringify(blockSchemas).length;
+}
+
+function allowedBlockIds(section: SectionSchema): string[] {
+    return Array.isArray(section.allowed_blocks)
+        ? section.allowed_blocks
+        : (section.allowed_blocks && typeof section.allowed_blocks === "object"
+            ? Object.keys(section.allowed_blocks)
+            : []);
+}
+
+export interface RetrievalOptions {
+    userPrompt?: string;
+    templateName?: string;
+    requestId?: string;
 }
 
 /**
@@ -130,8 +152,8 @@ function schemaCharCount(sectionSchemas, blockSchemas) {
  * complete, unfiltered set just read off disk by loadAllSchemasFromDisk().
  * options: { userPrompt, templateName = 'index', requestId }
  */
-function retrieveRelevantSchemas(fullSchemas, options = {}) {
-    const { userPrompt = '', templateName = 'index', requestId = instrumentation.nextRequestId('retrieval') } = options;
+export function retrieveRelevantSchemas(fullSchemas: SchemaCatalog, options: RetrievalOptions = {}): RetrievedSchemaCatalog {
+    const { userPrompt = "", templateName = "index", requestId = instrumentation.nextRequestId("retrieval") } = options;
 
     const index = buildCapabilityIndex(fullSchemas);
     const templateEligibleSections = index.sections.filter(s => isEligibleForTemplate(s, templateName));
@@ -147,7 +169,7 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
         ? templateEligibleSections.find(s => s.id === forcedSectionId)
         : null;
 
-    let selectedEntries;
+    let selectedEntries: typeof templateEligibleSections;
     let baselineHeroApplied = false;
     let forcedExclusiveApplied = false;
 
@@ -163,14 +185,14 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
             matchedCategories.includes(s.category) || s.tags.some(t => matchedTags.includes(t))
         );
 
-        const heroCandidates = templateEligibleSections.filter(s => s.category === 'hero');
-        if (heroCandidates.length > 0 && !selectedEntries.some(s => s.category === 'hero')) {
+        const heroCandidates = templateEligibleSections.filter(s => s.category === "hero");
+        if (heroCandidates.length > 0 && !selectedEntries.some(s => s.category === "hero")) {
             selectedEntries = [heroCandidates[0], ...selectedEntries];
             baselineHeroApplied = true;
         }
 
         // Dedupe while preserving order (hero first if it was force-included).
-        const seenIds = new Set();
+        const seenIds = new Set<string>();
         selectedEntries = selectedEntries.filter(s => {
             if (seenIds.has(s.id)) return false;
             seenIds.add(s.id);
@@ -178,11 +200,11 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
         });
     }
 
-    const heroCandidatesForFallbackCheck = templateEligibleSections.filter(s => s.category === 'hero');
+    const heroCandidatesForFallbackCheck = templateEligibleSections.filter(s => s.category === "hero");
     const floor = MIN_SECTIONS_FLOOR[templateName] ?? DEFAULT_MIN_SECTIONS_FLOOR;
     const noHeroAvailable = !forcedEntry && templateEligibleSections.length > 0 && heroCandidatesForFallbackCheck.length === 0;
 
-    let fallbackReason = null;
+    let fallbackReason: string | null = null;
     if (forcedEntry) {
         // Forced-exclusive selection is always usable by construction —
         // never subject to the floor/confidence/hero checks below.
@@ -190,7 +212,7 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
     } else if (templateEligibleSections.length === 0) {
         fallbackReason = `no sections declare "${templateName}" in allowed_on — nothing is eligible for this template today`;
     } else if (ruleMatches.length === 0) {
-        fallbackReason = 'no retrieval rules matched the prompt (zero confidence)';
+        fallbackReason = "no retrieval rules matched the prompt (zero confidence)";
     } else if (selectedEntries.length < floor) {
         fallbackReason = `selected section count ${selectedEntries.length} is below the floor of ${floor} required for template "${templateName}"`;
     } else if (noHeroAvailable) {
@@ -202,7 +224,7 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
     if (fallbackReason) {
         instrumentation.logRetrieval({
             requestId,
-            mode: 'FULL_FALLBACK',
+            mode: "FULL_FALLBACK",
             templateName,
             fallbackReason,
             ruleMatches,
@@ -223,7 +245,7 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
             sectionSchemas: fullSchemas.sectionSchemas,
             blockSchemas: fullSchemas.blockSchemas,
             retrievalMeta: {
-                mode: 'FULL_FALLBACK',
+                mode: "FULL_FALLBACK",
                 templateName,
                 fallbackReason,
                 matchedCategories,
@@ -243,20 +265,17 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
     const sectionById = new Map(fullSchemas.sectionSchemas.map(s => [s.id, s]));
     // Last-one-wins, matching validateOutput()'s existing Map semantics for
     // the duplicate "row" id (see PHASE2_REPORT.md).
-    const blockById = new Map();
+    const blockById = new Map<string, SchemaCatalog["blockSchemas"][number]>();
     fullSchemas.blockSchemas.forEach(b => blockById.set(b.id, b));
 
-    const selectedSections = selectedEntries.map(e => sectionById.get(e.id)).filter(Boolean);
+    const selectedSections = selectedEntries
+        .map(e => sectionById.get(e.id))
+        .filter((s): s is SectionSchema => Boolean(s));
 
-    const neededBlockIds = new Set();
-    const unresolvedBlockIds = new Set();
+    const neededBlockIds = new Set<string>();
+    const unresolvedBlockIds = new Set<string>();
     for (const section of selectedSections) {
-        const allowed = Array.isArray(section.allowed_blocks)
-            ? section.allowed_blocks
-            : (section.allowed_blocks && typeof section.allowed_blocks === 'object'
-                ? Object.keys(section.allowed_blocks)
-                : []);
-        for (const blockId of allowed) {
+        for (const blockId of allowedBlockIds(section)) {
             if (blockById.has(blockId)) {
                 neededBlockIds.add(blockId);
             } else {
@@ -268,19 +287,18 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
             }
         }
     }
-    const selectedBlocks = [...neededBlockIds].map(id => blockById.get(id));
+    const selectedBlocks = [...neededBlockIds].map(id => blockById.get(id)!);
 
     const retrievedCharCount = schemaCharCount(selectedSections, selectedBlocks);
 
     instrumentation.logRetrieval({
         requestId,
-        mode: 'RETRIEVAL',
+        mode: "RETRIEVAL",
         templateName,
         fallbackReason: null,
         ruleMatches,
         defaultRuleApplied: defaultApplied,
         baselineHeroApplied,
-        forcedExclusiveApplied,
         candidateSectionCount: templateEligibleSections.length,
         selectedSectionCount: selectedSections.length,
         candidateBlockCount: fullSchemas.blockSchemas.length,
@@ -296,7 +314,7 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
         sectionSchemas: selectedSections,
         blockSchemas: selectedBlocks,
         retrievalMeta: {
-            mode: 'RETRIEVAL',
+            mode: "RETRIEVAL",
             templateName,
             fallbackReason: null,
             matchedCategories,
@@ -330,7 +348,11 @@ function retrieveRelevantSchemas(fullSchemas, options = {}) {
  * fullSchemas: { globalSchema, sectionSchemas, blockSchemas } — the
  * complete, unfiltered set just read off disk.
  */
-function getTemplateEligibleSchemas(fullSchemas, templateName = 'index', requestId = instrumentation.nextRequestId('eligibility')) {
+export function getTemplateEligibleSchemas(
+    fullSchemas: SchemaCatalog,
+    templateName = "index",
+    requestId: string = instrumentation.nextRequestId("eligibility")
+): RetrievedSchemaCatalog {
     const templateEligibleSections = fullSchemas.sectionSchemas.filter(s => isEligibleForTemplate(s, templateName));
 
     const fullCharCount = schemaCharCount(fullSchemas.sectionSchemas, fullSchemas.blockSchemas);
@@ -344,7 +366,7 @@ function getTemplateEligibleSchemas(fullSchemas, templateName = 'index', request
     if (templateEligibleSections.length === 0) {
         instrumentation.logRetrieval({
             requestId,
-            mode: 'ELIGIBILITY_FALLBACK_FULL',
+            mode: "ELIGIBILITY_FALLBACK_FULL",
             templateName,
             fallbackReason: `no sections declare "${templateName}" in allowed_on — nothing is eligible for this template today`,
             candidateSectionCount: 0,
@@ -362,7 +384,7 @@ function getTemplateEligibleSchemas(fullSchemas, templateName = 'index', request
             sectionSchemas: fullSchemas.sectionSchemas,
             blockSchemas: fullSchemas.blockSchemas,
             retrievalMeta: {
-                mode: 'ELIGIBILITY_FALLBACK_FULL',
+                mode: "ELIGIBILITY_FALLBACK_FULL",
                 templateName,
                 fallbackReason: `no sections declare "${templateName}" in allowed_on — nothing is eligible for this template today`,
                 forcedExclusiveApplied: false,
@@ -381,18 +403,13 @@ function getTemplateEligibleSchemas(fullSchemas, templateName = 'index', request
 
     const selectedSections = forcedEntry ? [forcedEntry] : templateEligibleSections;
 
-    const blockById = new Map();
+    const blockById = new Map<string, SchemaCatalog["blockSchemas"][number]>();
     fullSchemas.blockSchemas.forEach(b => blockById.set(b.id, b));
 
-    const neededBlockIds = new Set();
-    const unresolvedBlockIds = new Set();
+    const neededBlockIds = new Set<string>();
+    const unresolvedBlockIds = new Set<string>();
     for (const section of selectedSections) {
-        const allowed = Array.isArray(section.allowed_blocks)
-            ? section.allowed_blocks
-            : (section.allowed_blocks && typeof section.allowed_blocks === 'object'
-                ? Object.keys(section.allowed_blocks)
-                : []);
-        for (const blockId of allowed) {
+        for (const blockId of allowedBlockIds(section)) {
             if (blockById.has(blockId)) {
                 neededBlockIds.add(blockId);
             } else {
@@ -400,10 +417,10 @@ function getTemplateEligibleSchemas(fullSchemas, templateName = 'index', request
             }
         }
     }
-    const selectedBlocks = [...neededBlockIds].map(id => blockById.get(id));
+    const selectedBlocks = [...neededBlockIds].map(id => blockById.get(id)!);
 
     const retrievedCharCount = schemaCharCount(selectedSections, selectedBlocks);
-    const mode = forcedEntry ? 'ELIGIBILITY_FORCED_EXCLUSIVE' : 'ELIGIBILITY_ONLY';
+    const mode = forcedEntry ? "ELIGIBILITY_FORCED_EXCLUSIVE" : "ELIGIBILITY_ONLY";
 
     instrumentation.logRetrieval({
         requestId,
@@ -437,21 +454,3 @@ function getTemplateEligibleSchemas(fullSchemas, templateName = 'index', request
         }
     };
 }
-
-module.exports = {
-    retrieveRelevantSchemas,
-    getTemplateEligibleSchemas,
-    matchRules,
-    MIN_SECTIONS_FLOOR,
-    DEFAULT_MIN_SECTIONS_FLOOR,
-    // Exported (Phase 5) so generation.js can enforce the same
-    // forced-exclusive-section rule when validating a staged GenerationPlan
-    // — reusing this constant, not re-deriving/duplicating it.
-    FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE,
-    // Exported (Phase 6) so generation.js/validation.js can enforce the same
-    // allowed_on-vs-template eligibility rule this file already uses for
-    // retrieval, instead of re-deriving it — see PHASE6_REPORT.md
-    // "allowed_on" for why this exact semantics (missing/empty allowed_on ==
-    // unrestricted) was kept identical rather than reinterpreted.
-    isEligibleForTemplate
-};

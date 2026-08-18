@@ -6,7 +6,7 @@ import { generationJobs } from "@/db/schema/generation";
 import { organizationMembers } from "@/db/schema/organizations";
 import { shopifyStores } from "@/db/schema/shopify";
 import { decryptSecret } from "@/lib/crypto";
-
+// apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
 
 type MergeSummary = { changedTemplates: string[]; changedSettings: string[] };

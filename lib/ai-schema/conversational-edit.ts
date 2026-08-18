@@ -26,8 +26,8 @@
  * the whole ThemeState or the full schema catalog.
  */
 
-const instrumentation = require('./instrumentation');
-const {
+import * as instrumentation from "./instrumentation";
+import {
     SESSION_STATES,
     computeThemeStateVersion,
     createSession,
@@ -36,30 +36,44 @@ const {
     resetSession,
     isCancelMessage,
     mergeClarificationAnswer
-} = require('./conversation-session');
-const { saveThemeState, loadThemeState, DEFAULT_THEME_ID } = require('./theme-state');
-const {
+} from "./conversation-session";
+import { saveThemeState, loadThemeState, DEFAULT_THEME_ID } from "./theme-state";
+import {
     EDIT_VERBS,
     classifyRequest,
     buildAmbiguityQuestion,
     hasChangeDetails,
     runOperationProposalStage,
     runTargetedEdit
-} = require('./edit-pipeline');
-const {
+} from "./edit-pipeline";
+import {
     resolveSectionTarget,
     resolveBlockTarget,
     applyOperationToThemeState,
     validateOperationOrder,
     applyOperationsToThemeState,
     generateOperationId
-} = require('./operations');
-const { applyThemeState } = require('./apply');
+} from "./operations";
+// apply.js stays plain CommonJS (out of scope — Shopify-facing apply path);
+// esModuleInterop lets this named import work against its `module.exports`.
+import { applyThemeState } from "./apply";
+import type {
+    ChangeSummary,
+    EditTurnResult,
+    KnownMerchantData,
+    Operation,
+    PendingClarification,
+    ResolvedTarget,
+    SchemaCatalog,
+    Session,
+    TargetContext,
+    ThemeState
+} from "./types";
 
 // §25 — a small, deterministic ceiling on AI-proposed operations per turn.
 // Exceeding it never triggers a bigger AI call; it's rejected before any AI
 // call is made at all (§26 — "no automatic full redesign").
-const MAX_OPERATIONS_PER_TURN = 3;
+export const MAX_OPERATIONS_PER_TURN = 3;
 
 // ---------------------------------------------------------------------------
 // §14 — a small, deterministic reference vocabulary. Generic references
@@ -71,26 +85,31 @@ const MAX_OPERATIONS_PER_TURN = 3;
 // component.
 // ---------------------------------------------------------------------------
 
-const REFERENCE_PATTERNS = [
-    { regex: /\bthe button\b/i, typeHint: 'button' },
-    { regex: /\bthe heading\b/i, typeHint: 'heading' },
-    { regex: /\bthe hero\b/i, typeHint: 'hero' },
-    { regex: /\bthe section\b/i, typeHint: 'section' },
+interface ReferencePattern {
+    regex: RegExp;
+    typeHint: string | null;
+}
+
+const REFERENCE_PATTERNS: ReferencePattern[] = [
+    { regex: /\bthe button\b/i, typeHint: "button" },
+    { regex: /\bthe heading\b/i, typeHint: "heading" },
+    { regex: /\bthe hero\b/i, typeHint: "hero" },
+    { regex: /\bthe section\b/i, typeHint: "section" },
     { regex: /\bthe same one\b/i, typeHint: null },
     { regex: /\bit\b/i, typeHint: null },
     { regex: /\bthat\b/i, typeHint: null },
     { regex: /\bthis\b/i, typeHint: null }
 ];
 
-function detectReference(message) {
-    const lower = (message || '').toLowerCase();
+export function detectReference(message: string | undefined): ReferencePattern | null {
+    const lower = (message || "").toLowerCase();
     for (const pattern of REFERENCE_PATTERNS) {
         if (pattern.regex.test(lower)) return pattern;
     }
     return null;
 }
 
-function containsReferenceWord(message) {
+export function containsReferenceWord(message: string | undefined): boolean {
     return !!detectReference(message);
 }
 
@@ -101,9 +120,14 @@ function containsReferenceWord(message) {
 // "it"/"that" reference — resolve to the single most recent target.
 const CONTINUATION_MARKERS = [/\btoo\b/i, /\balso\b/i, /\bas well\b/i];
 
-function containsContinuationMarker(message) {
-    return CONTINUATION_MARKERS.some(pattern => pattern.test(message || ''));
+export function containsContinuationMarker(message: string | undefined): boolean {
+    return CONTINUATION_MARKERS.some(pattern => pattern.test(message || ""));
 }
+
+type FollowUpResolution =
+    | { status: "RESOLVED"; target: ResolvedTarget }
+    | { status: "AMBIGUOUS"; candidates: Array<{ blockId: string; type: string | undefined }>; kind: "block"; templateName: string | null; sectionId: string | null }
+    | { status: "NOT_FOUND" };
 
 /**
  * Resolves a follow-up reference against the session's active edit context.
@@ -112,9 +136,9 @@ function containsContinuationMarker(message) {
  *   { status: 'AMBIGUOUS', candidates, kind: 'block', templateName, sectionId }
  *   { status: 'NOT_FOUND' }
  */
-function resolveFollowUpReference(session, message, themeState) {
+export function resolveFollowUpReference(session: Session, message: string | undefined, themeState: ThemeState): FollowUpResolution {
     const last = session.resolvedTarget;
-    if (!last || !last.sectionId) return { status: 'NOT_FOUND' };
+    if (!last || !last.sectionId) return { status: "NOT_FOUND" };
 
     const ref = detectReference(message);
 
@@ -123,38 +147,38 @@ function resolveFollowUpReference(session, message, themeState) {
     // one") — §14: only resolve against the single most recent target,
     // never broader semantic memory.
     if (!ref || !ref.typeHint) {
-        return { status: 'RESOLVED', target: last };
+        return { status: "RESOLVED", target: last };
     }
 
-    if (ref.typeHint === 'section') {
-        return { status: 'RESOLVED', target: { templateName: last.templateName, sectionId: last.sectionId, type: last.type } };
+    if (ref.typeHint === "section") {
+        return { status: "RESOLVED", target: { templateName: last.templateName, sectionId: last.sectionId, type: last.type } };
     }
 
-    if (last.blockId && (last.blockType || '').toLowerCase().includes(ref.typeHint)) {
-        return { status: 'RESOLVED', target: last };
+    if (last.blockId && (last.blockType || "").toLowerCase().includes(ref.typeHint)) {
+        return { status: "RESOLVED", target: last };
     }
-    if (!last.blockId && (last.type || '').toLowerCase().includes(ref.typeHint)) {
-        return { status: 'RESOLVED', target: { templateName: last.templateName, sectionId: last.sectionId, type: last.type } };
+    if (!last.blockId && (last.type || "").toLowerCase().includes(ref.typeHint)) {
+        return { status: "RESOLVED", target: { templateName: last.templateName, sectionId: last.sectionId, type: last.type } };
     }
 
-    const template = themeState.templates[last.templateName];
-    const section = template && template.raw.sections[last.sectionId];
-    if (!section) return { status: 'NOT_FOUND' };
+    const template = last.templateName ? themeState.templates[last.templateName] : undefined;
+    const section = template && last.sectionId ? template.raw.sections[last.sectionId] : null;
+    if (!section) return { status: "NOT_FOUND" };
 
     const candidates = Object.entries(section.blocks || {})
-        .filter(([, block]) => (block.type || '').toLowerCase().includes(ref.typeHint))
+        .filter(([, block]) => (block.type || "").toLowerCase().includes(ref.typeHint!))
         .map(([blockId, block]) => ({ blockId, type: block.type }));
 
     if (candidates.length === 1) {
         return {
-            status: 'RESOLVED',
+            status: "RESOLVED",
             target: { templateName: last.templateName, sectionId: last.sectionId, type: last.type, blockId: candidates[0].blockId, blockType: candidates[0].type }
         };
     }
     if (candidates.length > 1) {
-        return { status: 'AMBIGUOUS', candidates, kind: 'block', templateName: last.templateName, sectionId: last.sectionId };
+        return { status: "AMBIGUOUS", candidates, kind: "block", templateName: last.templateName, sectionId: last.sectionId };
     }
-    return { status: 'NOT_FOUND' };
+    return { status: "NOT_FOUND" };
 }
 
 // ---------------------------------------------------------------------------
@@ -163,19 +187,19 @@ function resolveFollowUpReference(session, message, themeState) {
 // resolveSectionTarget) — no new NLP.
 // ---------------------------------------------------------------------------
 
-function classifyTurn(session, message, themeState, schemas, templateName) {
-    if (isCancelMessage(message)) return 'CANCEL';
+export function classifyTurn(session: Session, message: string, themeState: ThemeState, schemas: SchemaCatalog, templateName: string): string {
+    if (isCancelMessage(message)) return "CANCEL";
     if (session.status === SESSION_STATES.NEEDS_CLARIFICATION && session.pendingClarification) {
-        return 'CLARIFICATION_ANSWER';
+        return "CLARIFICATION_ANSWER";
     }
 
     const classification = classifyRequest(message);
-    if (classification === 'INITIAL_GENERATION') return 'INITIAL_GENERATION';
+    if (classification === "INITIAL_GENERATION") return "INITIAL_GENERATION";
 
     const hasActiveContext = !!(session.resolvedTarget && session.resolvedTarget.sectionId) && session.status !== SESSION_STATES.IDLE;
-    if (!hasActiveContext) return 'NEW_REQUEST';
+    if (!hasActiveContext) return "NEW_REQUEST";
 
-    if (containsReferenceWord(message) || containsContinuationMarker(message)) return 'FOLLOW_UP';
+    if (containsReferenceWord(message) || containsContinuationMarker(message)) return "FOLLOW_UP";
 
     // No explicit reference/continuation signal. Default to NEW_REQUEST
     // (§16 — "if uncertain, ask/start fresh", never silently overload an
@@ -186,9 +210,9 @@ function classifyTurn(session, message, themeState, schemas, templateName) {
     // shares no keyword with the active target either (Scenario 4: "Change
     // the product page layout." after a hero edit), so a blank match must
     // default to NEW_REQUEST, not FOLLOW_UP.
-    const probe = resolveSectionTarget(themeState, session.resolvedTarget.templateName || templateName, message, schemas);
-    if (probe.status === 'RESOLVED' && probe.sectionId === session.resolvedTarget.sectionId) return 'FOLLOW_UP';
-    return 'NEW_REQUEST';
+    const probe = resolveSectionTarget(themeState, session.resolvedTarget!.templateName || templateName, message, schemas);
+    if (probe.status === "RESOLVED" && probe.sectionId === session.resolvedTarget!.sectionId) return "FOLLOW_UP";
+    return "NEW_REQUEST";
 }
 
 // ---------------------------------------------------------------------------
@@ -198,10 +222,10 @@ function classifyTurn(session, message, themeState, schemas, templateName) {
 // one clause ("the black and white banner") must not be split.
 // ---------------------------------------------------------------------------
 
-function splitBoundedClauses(message) {
+export function splitBoundedClauses(message: string): string[] {
     const parts = message.split(/\s*;\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean);
     if (parts.length <= 1) return [message];
-    const eachHasVerb = parts.every(part => EDIT_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, 'i').test(part)));
+    const eachHasVerb = parts.every(part => EDIT_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, "i").test(part)));
     return eachHasVerb ? parts : [message];
 }
 
@@ -219,14 +243,14 @@ function splitBoundedClauses(message) {
 // identical shape regardless of which path resolved the target.
 // ---------------------------------------------------------------------------
 
-function buildTargetContextFromResolved(themeState, schemas, templateName, target) {
-    const template = themeState.templates[templateName];
+export function buildTargetContextFromResolved(themeState: ThemeState, schemas: SchemaCatalog, templateName: string | null, target: ResolvedTarget): TargetContext | null {
+    const template = templateName ? themeState.templates[templateName] : undefined;
     const section = template && target.sectionId ? template.raw.sections[target.sectionId] : null;
     if (!section) return null;
 
     const sectionSchema = schemas.sectionSchemas.find(s => s.id === section.type);
-    const targetContext = {
-        sectionId: target.sectionId,
+    const targetContext: TargetContext = {
+        sectionId: target.sectionId!,
         type: section.type,
         currentSettings: section.settings || {},
         schemaSettings: sectionSchema ? sectionSchema.settings : {}
@@ -253,14 +277,14 @@ function buildTargetContextFromResolved(themeState, schemas, templateName, targe
  * add_section/add_block auto-generate their real id during execution, not
  * during proposal).
  */
-function deriveResolvedTarget(changeSummary, executedThemeState) {
-    if (!changeSummary || changeSummary.target === 'globalSettings') {
-        return { templateName: null, sectionId: null, type: 'globalSettings' };
+export function deriveResolvedTarget(changeSummary: ChangeSummary | null | undefined, executedThemeState: ThemeState): ResolvedTarget {
+    if (!changeSummary || changeSummary.target === "globalSettings") {
+        return { templateName: null, sectionId: null, type: "globalSettings" };
     }
-    const [templateName, sectionId, blockId] = changeSummary.target.split('.');
+    const [templateName, sectionId, blockId] = changeSummary.target.split(".");
     const template = executedThemeState.templates[templateName];
     const section = template ? template.raw.sections[sectionId] : null;
-    const target = { templateName, sectionId, type: section ? section.type : null };
+    const target: ResolvedTarget = { templateName, sectionId, type: section ? section.type : null };
     if (blockId) {
         const block = section && section.blocks ? section.blocks[blockId] : null;
         target.blockId = blockId;
@@ -277,7 +301,18 @@ function deriveResolvedTarget(changeSummary, executedThemeState) {
 // Phase 8 didn't expose an entry point for (confirmed gap, §4).
 // ---------------------------------------------------------------------------
 
-async function proposeAndExecuteForTarget(userPrompt, targetContext, ctx) {
+interface TurnContext {
+    templateName: string;
+    themeState: ThemeState;
+    schemas: SchemaCatalog;
+    knownMerchantData?: KnownMerchantData;
+    requestId: string;
+    autoApply?: boolean;
+    themeRoot?: string;
+    dryRunApply?: boolean;
+}
+
+export async function proposeAndExecuteForTarget(userPrompt: string, targetContext: TargetContext, ctx: TurnContext): Promise<EditTurnResult> {
     const { templateName, themeState, schemas, knownMerchantData = {}, requestId, autoApply, themeRoot, dryRunApply } = ctx;
 
     const { operation, validation, repaired } = await runOperationProposalStage({
@@ -285,25 +320,25 @@ async function proposeAndExecuteForTarget(userPrompt, targetContext, ctx) {
     });
 
     if (!validation.valid) {
-        return { status: 'FAILED', errors: validation.errors, operation, repaired };
+        return { status: "FAILED", errors: validation.errors, operation: operation ?? undefined, repaired };
     }
 
-    const executed = applyOperationToThemeState(themeState, operation, { themeState, schemas, knownMerchantData, requestId });
+    const executed = applyOperationToThemeState(themeState, operation!, { themeState, schemas, knownMerchantData, requestId });
     if (!executed.valid) {
-        return { status: 'FAILED', errors: executed.errors, operation, repaired };
+        return { status: "FAILED", errors: executed.errors, operation: operation ?? undefined, repaired };
     }
 
-    let applyResult = null;
+    let applyResult: unknown = null;
     if (autoApply) {
-        const changedTemplates = operation.operation === 'update_global_settings' ? [] : [operation.target.templateName];
+        const changedTemplates = operation!.operation === "update_global_settings" ? [] : [operation!.target!.templateName!];
         applyResult = await applyThemeState(executed.themeState, {
-            themeRoot, changedTemplates, writeGlobalSettings: operation.operation === 'update_global_settings', dryRun: dryRunApply, requestId
+            themeRoot, changedTemplates, writeGlobalSettings: operation!.operation === "update_global_settings", dryRun: dryRunApply, requestId
         });
     }
 
     return {
-        status: autoApply ? (dryRunApply ? 'DRY_RUN' : 'APPLIED') : 'PROPOSED',
-        operation, changeSummary: executed.changeSummary, themeState: executed.themeState, applyResult, repaired
+        status: autoApply ? (dryRunApply ? "DRY_RUN" : "APPLIED") : "PROPOSED",
+        operation: operation!, changeSummary: executed.changeSummary, themeState: executed.themeState!, applyResult, repaired
     };
 }
 
@@ -316,26 +351,27 @@ async function proposeAndExecuteForTarget(userPrompt, targetContext, ctx) {
 // leaves the ORIGINAL ThemeState completely untouched.
 // ---------------------------------------------------------------------------
 
-async function runMultiOperationTurn(clauses, session, ctx) {
+export async function runMultiOperationTurn(clauses: string[], session: Session, ctx: TurnContext): Promise<EditTurnResult> {
     const { themeState, schemas, templateName, knownMerchantData = {}, requestId } = ctx;
-    const operations = [];
+    void session;
+    const operations: Operation[] = [];
     let aiCallCount = 0;
     let anyRepaired = false;
 
     for (const clause of clauses) {
         const sectionTarget = resolveSectionTarget(themeState, templateName, clause, schemas);
-        if (sectionTarget.status !== 'RESOLVED') {
-            return { status: 'FAILED', errors: [{ code: 'OPERATION_TARGET_NOT_FOUND', path: 'operations', message: `Could not resolve an existing target for: "${clause}"` }] };
+        if (sectionTarget.status !== "RESOLVED") {
+            return { status: "FAILED", errors: [{ code: "OPERATION_TARGET_NOT_FOUND", path: "operations", message: `Could not resolve an existing target for: "${clause}"` }] };
         }
         const sectionSchema = schemas.sectionSchemas.find(s => s.id === sectionTarget.section.type);
-        const targetContext = {
+        const targetContext: TargetContext = {
             sectionId: sectionTarget.sectionId,
             type: sectionTarget.section.type,
             currentSettings: sectionTarget.section.settings || {},
             schemaSettings: sectionSchema ? sectionSchema.settings : {}
         };
         const blockTarget = resolveBlockTarget(sectionTarget.section, clause, schemas);
-        if (blockTarget.status === 'RESOLVED') {
+        if (blockTarget.status === "RESOLVED") {
             const blockSchema = schemas.blockSchemas.find(b => b.id === blockTarget.block.type);
             targetContext.block = {
                 blockId: blockTarget.blockId, type: blockTarget.block.type,
@@ -349,31 +385,31 @@ async function runMultiOperationTurn(clauses, session, ctx) {
         aiCallCount += repaired ? 2 : 1;
         anyRepaired = anyRepaired || repaired;
         if (!validation.valid) {
-            return { status: 'FAILED', errors: validation.errors, aiCallCount, repaired: anyRepaired };
+            return { status: "FAILED", errors: validation.errors, aiCallCount, repaired: anyRepaired };
         }
-        operations.push(operation);
+        operations.push(operation!);
     }
 
     const orderErrors = validateOperationOrder(operations);
     if (orderErrors.length > 0) {
-        return { status: 'FAILED', errors: orderErrors, aiCallCount, repaired: anyRepaired };
+        return { status: "FAILED", errors: orderErrors, aiCallCount, repaired: anyRepaired };
     }
 
     const executed = applyOperationsToThemeState(themeState, operations, { themeState, schemas, knownMerchantData, requestId });
     if (!executed.valid) {
-        return { status: 'FAILED', errors: executed.errors, aiCallCount, repaired: anyRepaired };
+        return { status: "FAILED", errors: executed.errors, aiCallCount, repaired: anyRepaired };
     }
 
-    let applyResult = null;
+    let applyResult: unknown = null;
     if (ctx.autoApply) {
-        const changedTemplates = [...new Set(operations.filter(o => o.operation !== 'update_global_settings').map(o => o.target.templateName))];
-        const writeGlobalSettings = operations.some(o => o.operation === 'update_global_settings');
+        const changedTemplates = [...new Set(operations.filter(o => o.operation !== "update_global_settings").map(o => o.target!.templateName!))];
+        const writeGlobalSettings = operations.some(o => o.operation === "update_global_settings");
         applyResult = await applyThemeState(executed.themeState, { themeRoot: ctx.themeRoot, changedTemplates, writeGlobalSettings, dryRun: ctx.dryRunApply, requestId });
     }
 
     return {
-        status: ctx.autoApply ? (ctx.dryRunApply ? 'DRY_RUN' : 'APPLIED') : 'PROPOSED',
-        operations, changeSummaries: executed.changeSummaries, themeState: executed.themeState, applyResult,
+        status: ctx.autoApply ? (ctx.dryRunApply ? "DRY_RUN" : "APPLIED") : "PROPOSED",
+        operations, changeSummaries: executed.changeSummaries, themeState: executed.themeState!, applyResult,
         aiCallCount, repaired: anyRepaired
     };
 }
@@ -381,6 +417,25 @@ async function runMultiOperationTurn(clauses, session, ctx) {
 // ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
+
+export interface RunConversationalEditOptions {
+    sessionId?: string;
+    themeId?: string;
+    themeState?: ThemeState;
+    schemas: SchemaCatalog;
+    templateName?: string;
+    knownMerchantData?: KnownMerchantData;
+    autoApply?: boolean;
+    themeRoot?: string;
+    dryRunApply?: boolean;
+    requestId?: string;
+}
+
+export interface ConversationalEditResult {
+    status: string;
+    sessionId: string;
+    [key: string]: unknown;
+}
 
 /**
  * options:
@@ -396,24 +451,24 @@ async function runMultiOperationTurn(clauses, session, ctx) {
  *   - knownMerchantData / autoApply / themeRoot / dryRunApply: forwarded
  *     exactly as edit-pipeline.js's runTargetedEdit() already accepts them.
  */
-async function runConversationalEdit(message, options = {}) {
+export async function runConversationalEdit(message: string, options: RunConversationalEditOptions): Promise<ConversationalEditResult> {
     const {
         sessionId: inputSessionId,
         themeId = DEFAULT_THEME_ID,
         schemas,
-        templateName: optionsTemplateName = 'index',
+        templateName: optionsTemplateName = "index",
         knownMerchantData = {},
         autoApply = false,
         themeRoot,
         dryRunApply = false,
-        requestId = instrumentation.nextRequestId('conversation')
+        requestId = instrumentation.nextRequestId("conversation")
     } = options;
 
     if (!schemas || !Array.isArray(schemas.sectionSchemas)) {
-        throw new Error('runConversationalEdit() requires the full AI schema catalog');
+        throw new Error("runConversationalEdit() requires the full AI schema catalog");
     }
-    if (!message || typeof message !== 'string' || !message.trim()) {
-        throw new Error('runConversationalEdit() requires a non-empty message');
+    if (!message || typeof message !== "string" || !message.trim()) {
+        throw new Error("runConversationalEdit() requires a non-empty message");
     }
 
     const startTime = Date.now();
@@ -422,9 +477,9 @@ async function runConversationalEdit(message, options = {}) {
 
     let themeState = options.themeState;
     if (!themeState) {
-        themeState = await loadThemeState(session.themeId);
+        themeState = (await loadThemeState(session.themeId)) ?? undefined;
         if (!themeState) {
-            throw new Error('runConversationalEdit() requires a themeState — none was provided and none was previously saved for this session');
+            throw new Error("runConversationalEdit() requires a themeState — none was provided and none was previously saved for this session");
         }
     }
 
@@ -444,7 +499,7 @@ async function runConversationalEdit(message, options = {}) {
     // is treated as already-applied rather than re-executed.
     if (!staleContextDetected && session.status === SESSION_STATES.COMPLETED && session.lastMessage === message && session.themeStateVersion === currentVersion) {
         return {
-            status: session.lastResultStatus || 'COMPLETED',
+            status: session.lastResultStatus || "COMPLETED",
             sessionId: session.sessionId,
             idempotent: true,
             operation: session.lastOperation,
@@ -457,7 +512,8 @@ async function runConversationalEdit(message, options = {}) {
 
     const activeTemplateName = (session.resolvedTarget && session.resolvedTarget.templateName) || optionsTemplateName;
     const turnType = classifyTurn(session, message, themeState, schemas, activeTemplateName);
-    const ctx = { themeState, schemas, templateName: activeTemplateName, knownMerchantData, autoApply, themeRoot, dryRunApply, requestId };
+    const ctx: TurnContext = { themeState, schemas, templateName: activeTemplateName, knownMerchantData, autoApply, themeRoot, dryRunApply, requestId };
+    const finalThemeState = themeState;
 
     // `resultStatus` is always a SESSION_STATES value (drives classifyTurn()
     // on the NEXT turn); `extra.turnStatus`, when present, is the
@@ -466,19 +522,21 @@ async function runConversationalEdit(message, options = {}) {
     // returned as `status` instead. A COMPLETED session can still mean three
     // different things happened this turn; the session machine only needs
     // to know it finished successfully.
-    async function finish(partialSession, resultStatus, extra = {}) {
+    async function finish(partialSession: Session, resultStatus: string, extra: Record<string, unknown> = {}): Promise<ConversationalEditResult> {
         const { turnStatus, ...publicExtra } = extra;
-        const returnedStatus = turnStatus || resultStatus;
-        const finalSession = { ...partialSession, status: resultStatus, lastMessage: message, lastResultStatus: returnedStatus };
+        const returnedStatus = (turnStatus as string) || resultStatus;
+        const finalSession: Session = { ...partialSession, status: resultStatus, lastMessage: message, lastResultStatus: returnedStatus };
         await saveSession(finalSession);
+        const extraOperation = extra.operation as Operation | undefined;
+        const extraOperations = extra.operations as Operation[] | undefined;
         instrumentation.logConversationTurn({
             requestId, sessionId: finalSession.sessionId, turnCount: finalSession.turnCount,
             turnType, status: returnedStatus,
             clarificationCount: finalSession.pendingClarification ? 1 : 0,
-            targetResolution: finalSession.resolvedTarget ? 'RESOLVED' : null,
-            aiCallCount: extra.aiCallCount || 0, repaired: !!extra.repaired,
-            operationCount: extra.operationCount || (extra.operation ? 1 : 0) || (extra.operations ? extra.operations.length : 0),
-            operationTypes: extra.operationTypes || (extra.operation ? [extra.operation.operation] : (extra.operations || []).map(o => o.operation)),
+            targetResolution: finalSession.resolvedTarget ? "RESOLVED" : null,
+            aiCallCount: (extra.aiCallCount as number) || 0, repaired: !!extra.repaired,
+            operationCount: (extra.operationCount as number) || (extraOperation ? 1 : 0) || (extraOperations ? extraOperations.length : 0),
+            operationTypes: (extra.operationTypes as string[]) || (extraOperation ? [extraOperation.operation] : (extraOperations || []).map(o => o.operation)),
             themeStateVersion: finalSession.themeStateVersion, durationMs: Date.now() - startTime
         });
         return { status: returnedStatus, sessionId: finalSession.sessionId, ...publicExtra };
@@ -495,17 +553,17 @@ async function runConversationalEdit(message, options = {}) {
     // stale/unrelated snapshot instead of the one the question was actually
     // asked about (e.g. producing a correct-looking "Which section?" list
     // that doesn't match what a following turn actually sees).
-    async function persistUnmutatedThemeState() {
-        await saveThemeState({ ...themeState, themeId: session.themeId });
+    async function persistUnmutatedThemeState(): Promise<void> {
+        await saveThemeState({ ...finalThemeState, themeId: session!.themeId });
     }
 
-    async function handleSingleTurnResult(result, resultSession) {
-        if (result.status === 'AMBIGUOUS') {
+    async function handleSingleTurnResult(result: EditTurnResult, resultSession: Session): Promise<ConversationalEditResult> {
+        if (result.status === "AMBIGUOUS") {
             await persistUnmutatedThemeState();
-            const pendingClarification = { kind: 'intent' };
-            return finish({ ...resultSession, pendingClarification, pendingQuestion: 'What would you like to change?', themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: ['What would you like to change?'] });
+            const pendingClarification: PendingClarification = { kind: "intent" };
+            return finish({ ...resultSession, pendingClarification, pendingQuestion: "What would you like to change?", themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: ["What would you like to change?"] });
         }
-        if (result.status === 'NEEDS_CLARIFICATION') {
+        if (result.status === "NEEDS_CLARIFICATION") {
             await persistUnmutatedThemeState();
             if (!result.candidates || result.candidates.length === 0) {
                 // No fixed candidate list to match the answer against (e.g.
@@ -515,14 +573,14 @@ async function runConversationalEdit(message, options = {}) {
                 // same as a classification-level AMBIGUOUS turn already does,
                 // rather than routing to mergeClarificationAnswer() which
                 // requires real candidates to match against.
-                const pendingClarification = { kind: 'intent' };
-                return finish({ ...resultSession, pendingClarification, pendingQuestion: result.questions[0], themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: result.questions });
+                const pendingClarification: PendingClarification = { kind: "intent" };
+                return finish({ ...resultSession, pendingClarification, pendingQuestion: result.questions![0], themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: result.questions });
             }
-            const kind = result.candidates[0] && 'blockId' in result.candidates[0] ? 'block' : 'section';
-            const pendingClarification = { kind, candidates: result.candidates, templateName: result.templateName || ctx.templateName, sectionId: result.sectionId || null, questions: result.questions };
-            return finish({ ...resultSession, pendingClarification, pendingQuestion: result.questions[0], themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: result.questions, candidates: result.candidates });
+            const kind = result.candidates[0] && "blockId" in result.candidates[0] ? "block" : "section";
+            const pendingClarification: PendingClarification = { kind, candidates: result.candidates, templateName: result.templateName || ctx.templateName, sectionId: result.sectionId || null, questions: result.questions! };
+            return finish({ ...resultSession, pendingClarification, pendingQuestion: result.questions![0], themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: result.questions, candidates: result.candidates });
         }
-        if (result.status === 'FAILED') {
+        if (result.status === "FAILED") {
             await persistUnmutatedThemeState();
             return finish({ ...resultSession, themeStateVersion: currentVersion }, SESSION_STATES.FAILED, { errors: result.errors, operation: result.operation, repaired: result.repaired });
         }
@@ -531,14 +589,14 @@ async function runConversationalEdit(message, options = {}) {
         // happened to carry (saveThemeState()/loadThemeState() are keyed by
         // that field; a mismatch would silently save to one file and load
         // from another on the next turn).
-        await saveThemeState({ ...result.themeState, themeId: resultSession.themeId });
-        const updatedSession = {
+        await saveThemeState({ ...result.themeState!, themeId: resultSession.themeId });
+        const updatedSession: Session = {
             ...resultSession,
             currentIntent: null, pendingClarification: null, pendingQuestion: null,
-            resolvedTarget: deriveResolvedTarget(result.changeSummary, result.themeState),
-            lastOperation: { ...result.operation, id: generateOperationId(result.operation) },
-            lastChangeSummary: result.changeSummary,
-            themeStateVersion: computeThemeStateVersion(result.themeState)
+            resolvedTarget: deriveResolvedTarget(result.changeSummary, result.themeState!),
+            lastOperation: { ...result.operation!, id: generateOperationId(result.operation!) },
+            lastChangeSummary: result.changeSummary ?? null,
+            themeStateVersion: computeThemeStateVersion(result.themeState!)
         };
         return finish(updatedSession, SESSION_STATES.COMPLETED, {
             turnStatus: result.status, // PROPOSED | APPLIED | DRY_RUN
@@ -547,21 +605,21 @@ async function runConversationalEdit(message, options = {}) {
         });
     }
 
-    async function handleMultiTurnResult(result, resultSession) {
-        if (result.status === 'FAILED') {
+    async function handleMultiTurnResult(result: EditTurnResult, resultSession: Session): Promise<ConversationalEditResult> {
+        if (result.status === "FAILED") {
             await persistUnmutatedThemeState();
             return finish({ ...resultSession, themeStateVersion: currentVersion }, SESSION_STATES.FAILED, { errors: result.errors, aiCallCount: result.aiCallCount, repaired: result.repaired });
         }
-        await saveThemeState({ ...result.themeState, themeId: resultSession.themeId });
-        const lastSummary = result.changeSummaries[result.changeSummaries.length - 1];
-        const lastOp = result.operations[result.operations.length - 1];
-        const updatedSession = {
+        await saveThemeState({ ...result.themeState!, themeId: resultSession.themeId });
+        const lastSummary = result.changeSummaries![result.changeSummaries!.length - 1];
+        const lastOp = result.operations![result.operations!.length - 1];
+        const updatedSession: Session = {
             ...resultSession,
             currentIntent: null, pendingClarification: null, pendingQuestion: null,
-            resolvedTarget: deriveResolvedTarget(lastSummary, result.themeState),
+            resolvedTarget: deriveResolvedTarget(lastSummary, result.themeState!),
             lastOperation: { ...lastOp, id: generateOperationId(lastOp) },
             lastChangeSummary: lastSummary,
-            themeStateVersion: computeThemeStateVersion(result.themeState)
+            themeStateVersion: computeThemeStateVersion(result.themeState!)
         };
         return finish(updatedSession, SESSION_STATES.COMPLETED, {
             turnStatus: result.status, // PROPOSED | APPLIED | DRY_RUN
@@ -571,18 +629,18 @@ async function runConversationalEdit(message, options = {}) {
     }
 
     // -----------------------------------------------------------------------
-    if (turnType === 'CANCEL') {
+    if (turnType === "CANCEL") {
         return finish(resetSession(session), SESSION_STATES.IDLE, { message: "Okay — I've cleared that." });
     }
 
-    if (turnType === 'INITIAL_GENERATION') {
-        return finish(session, 'INITIAL_GENERATION', {});
+    if (turnType === "INITIAL_GENERATION") {
+        return finish(session, "INITIAL_GENERATION", {});
     }
 
-    if (turnType === 'CLARIFICATION_ANSWER') {
-        const pending = session.pendingClarification;
+    if (turnType === "CLARIFICATION_ANSWER") {
+        const pending = session.pendingClarification!;
 
-        if (pending.kind === 'intent') {
+        if (pending.kind === "intent") {
             // §7/§8 — the original intent survives clarification; the
             // answer is MERGED into it, never treated as an unrelated
             // fresh request.
@@ -591,7 +649,7 @@ async function runConversationalEdit(message, options = {}) {
             return handleSingleTurnResult(result, { ...session, currentIntent: mergedMessage });
         }
 
-        if (pending.kind === 'value') {
+        if (pending.kind === "value") {
             // §9/§10 — second-round answer to "what would you like to
             // change?" against an ALREADY-resolved target (§9's exact
             // "resolvedTarget = announcement banner; change = text color"
@@ -602,7 +660,7 @@ async function runConversationalEdit(message, options = {}) {
             const targetContext = buildTargetContextFromResolved(themeState, schemas, pending.templateName, pending.target);
             if (!targetContext) {
                 const question = "That target doesn't exist anymore — what would you like to change?";
-                return finish({ ...session, currentIntent: mergedMessage, pendingClarification: { kind: 'intent' }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
+                return finish({ ...session, currentIntent: mergedMessage, pendingClarification: { kind: "intent" }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
             }
             const result = await proposeAndExecuteForTarget(mergedMessage, targetContext, { ...ctx, templateName: pending.templateName });
             return handleSingleTurnResult(result, { ...session, currentIntent: mergedMessage });
@@ -616,46 +674,48 @@ async function runConversationalEdit(message, options = {}) {
             return finish({ ...session, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question], candidates: pending.candidates });
         }
 
-        const target = {
+        const match = merge.match!;
+        const target: ResolvedTarget = {
             templateName: pending.templateName,
-            sectionId: pending.kind === 'block' ? pending.sectionId : merge.match.sectionId,
-            blockId: pending.kind === 'block' ? merge.match.blockId : undefined
+            sectionId: pending.kind === "block" ? (pending.sectionId ?? null) : ("sectionId" in match ? match.sectionId : null),
+            type: null,
+            blockId: pending.kind === "block" ? ("blockId" in match ? match.blockId : undefined) : undefined
         };
         const targetContext = buildTargetContextFromResolved(themeState, schemas, pending.templateName, target);
         if (!targetContext) {
             const question = "That target doesn't exist anymore — what would you like to change?";
-            return finish({ ...session, currentIntent: message, pendingClarification: { kind: 'intent' }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
+            return finish({ ...session, currentIntent: message, pendingClarification: { kind: "intent" }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
         }
         target.type = targetContext.type;
         if (targetContext.block) target.blockType = targetContext.block.type;
 
         if (!hasChangeDetails(session.currentIntent, target)) {
-            const question = 'What would you like to change?';
-            const valueClarification = { kind: 'value', target, templateName: pending.templateName, questions: [question] };
+            const question = "What would you like to change?";
+            const valueClarification: PendingClarification = { kind: "value", target, templateName: pending.templateName, questions: [question] };
             return finish({ ...session, resolvedTarget: target, pendingClarification: valueClarification, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
         }
 
-        const result = await proposeAndExecuteForTarget(session.currentIntent, targetContext, { ...ctx, templateName: pending.templateName });
+        const result = await proposeAndExecuteForTarget(session.currentIntent!, targetContext, { ...ctx, templateName: pending.templateName });
         return handleSingleTurnResult(result, session);
     }
 
-    if (turnType === 'FOLLOW_UP') {
+    if (turnType === "FOLLOW_UP") {
         const resolution = resolveFollowUpReference(session, message, themeState);
-        if (resolution.status === 'AMBIGUOUS') {
+        if (resolution.status === "AMBIGUOUS") {
             const questions = [buildAmbiguityQuestion(resolution.candidates, resolution.kind)];
-            const pendingClarification = { kind: resolution.kind, candidates: resolution.candidates, templateName: resolution.templateName, sectionId: resolution.sectionId, questions };
+            const pendingClarification: PendingClarification = { kind: resolution.kind, candidates: resolution.candidates, templateName: resolution.templateName || "", sectionId: resolution.sectionId, questions };
             return finish({ ...session, currentIntent: message, pendingClarification, pendingQuestion: questions[0] }, SESSION_STATES.NEEDS_CLARIFICATION, { questions, candidates: resolution.candidates });
         }
-        if (resolution.status !== 'RESOLVED') {
-            const question = 'What would you like to change?';
-            return finish({ ...session, currentIntent: message, pendingClarification: { kind: 'intent' }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
+        if (resolution.status !== "RESOLVED") {
+            const question = "What would you like to change?";
+            return finish({ ...session, currentIntent: message, pendingClarification: { kind: "intent" }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
         }
         const targetContext = buildTargetContextFromResolved(themeState, schemas, resolution.target.templateName, resolution.target);
         if (!targetContext) {
             const question = "That target doesn't exist anymore — what would you like to change?";
-            return finish({ ...session, currentIntent: message, pendingClarification: { kind: 'intent' }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
+            return finish({ ...session, currentIntent: message, pendingClarification: { kind: "intent" }, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
         }
-        const result = await proposeAndExecuteForTarget(message, targetContext, { ...ctx, templateName: resolution.target.templateName });
+        const result = await proposeAndExecuteForTarget(message, targetContext, { ...ctx, templateName: resolution.target.templateName || ctx.templateName });
         return handleSingleTurnResult(result, session);
     }
 
@@ -663,7 +723,7 @@ async function runConversationalEdit(message, options = {}) {
     const clauses = splitBoundedClauses(message);
     if (clauses.length > 1) {
         if (clauses.length > MAX_OPERATIONS_PER_TURN) {
-            return finish(session, 'TOO_MANY_OPERATIONS', { message: "That includes several changes. Let's handle them in smaller steps." });
+            return finish(session, "TOO_MANY_OPERATIONS", { message: "That includes several changes. Let's handle them in smaller steps." });
         }
         const result = await runMultiOperationTurn(clauses, session, ctx);
         return handleMultiTurnResult(result, { ...session, currentIntent: message });
@@ -672,18 +732,3 @@ async function runConversationalEdit(message, options = {}) {
     const result = await runTargetedEdit(message, ctx);
     return handleSingleTurnResult(result, { ...session, currentIntent: message });
 }
-
-module.exports = {
-    MAX_OPERATIONS_PER_TURN,
-    detectReference,
-    containsReferenceWord,
-    containsContinuationMarker,
-    resolveFollowUpReference,
-    classifyTurn,
-    splitBoundedClauses,
-    buildTargetContextFromResolved,
-    deriveResolvedTarget,
-    proposeAndExecuteForTarget,
-    runMultiOperationTurn,
-    runConversationalEdit
-};

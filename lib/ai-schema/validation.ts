@@ -31,7 +31,8 @@
  * deterministic checks report a structured error.
  */
 
-const { isEligibleForTemplate } = require('./retrieval');
+import { isEligibleForTemplate } from "./retrieval";
+import type { GenerationConfig, KnownMerchantData, SchemaCatalog, SettingSchema, SettingSchemaObject, ThemeState, ValidationIssue, ValidationResult } from "./types";
 
 // ---------------------------------------------------------------------------
 // Structured result contract (§22) — stable, small error-code set (§22: "do
@@ -40,24 +41,24 @@ const { isEligibleForTemplate } = require('./retrieval');
 // and a human-readable message (for repair prompts / debugging / future UI).
 // ---------------------------------------------------------------------------
 
-const ERROR_CODES = Object.freeze({
-    SECTION_NOT_ALLOWED_ON_TEMPLATE: 'SECTION_NOT_ALLOWED_ON_TEMPLATE',
-    SETTING_UNKNOWN: 'SETTING_UNKNOWN',
-    SETTING_INVALID_TYPE: 'SETTING_INVALID_TYPE',
-    SETTING_INVALID_OPTION: 'SETTING_INVALID_OPTION',
-    SETTING_OUT_OF_RANGE: 'SETTING_OUT_OF_RANGE',
-    DATA_REFERENCE_HALLUCINATED: 'DATA_REFERENCE_HALLUCINATED'
+export const ERROR_CODES = Object.freeze({
+    SECTION_NOT_ALLOWED_ON_TEMPLATE: "SECTION_NOT_ALLOWED_ON_TEMPLATE",
+    SETTING_UNKNOWN: "SETTING_UNKNOWN",
+    SETTING_INVALID_TYPE: "SETTING_INVALID_TYPE",
+    SETTING_INVALID_OPTION: "SETTING_INVALID_OPTION",
+    SETTING_OUT_OF_RANGE: "SETTING_OUT_OF_RANGE",
+    DATA_REFERENCE_HALLUCINATED: "DATA_REFERENCE_HALLUCINATED"
 });
 
-function makeIssue(code, path, message) {
+export function makeIssue(code: string, path: string, message: string): ValidationIssue {
     return { code, path, message };
 }
 
-function emptyResult() {
+function emptyResult(): ValidationResult {
     return { valid: true, errors: [], warnings: [] };
 }
 
-function mergeResults(results) {
+function mergeResults(results: ValidationResult[]): ValidationResult {
     const errors = results.flatMap(r => r.errors);
     const warnings = results.flatMap(r => r.warnings);
     return { valid: errors.length === 0, errors, warnings };
@@ -77,9 +78,9 @@ function mergeResults(results) {
 // a FULL_FALLBACK retrieval pool is unfiltered by allowed_on).
 // ---------------------------------------------------------------------------
 
-function validateAllowedOn(config, schemas, templateName) {
+export function validateAllowedOn(config: GenerationConfig, schemas: SchemaCatalog, templateName: string): ValidationResult {
     const sectionById = new Map(schemas.sectionSchemas.map(s => [s.id, s]));
-    const errors = [];
+    const errors: ValidationIssue[] = [];
 
     for (const [sectionId, section] of Object.entries(config.sections || {})) {
         const sectionSchema = sectionById.get(section.type);
@@ -115,29 +116,35 @@ function validateAllowedOn(config, schemas, templateName) {
 // can dispatch on without re-deriving this three-way distinction elsewhere.
 // ---------------------------------------------------------------------------
 
-function getSettingKind(settingSchema) {
-    if (typeof settingSchema === 'string') {
-        return { kind: 'typeName', typeName: settingSchema };
+export type SettingKind =
+    | { kind: "typeName"; typeName: string }
+    | { kind: "enum"; options: unknown[] }
+    | { kind: "object"; typeName: string | undefined; def: SettingSchemaObject }
+    | { kind: "unknown" };
+
+export function getSettingKind(settingSchema: SettingSchema | undefined): SettingKind {
+    if (typeof settingSchema === "string") {
+        return { kind: "typeName", typeName: settingSchema };
     }
     if (Array.isArray(settingSchema)) {
-        return { kind: 'enum', options: settingSchema };
+        return { kind: "enum", options: settingSchema };
     }
-    if (settingSchema && typeof settingSchema === 'object') {
-        return { kind: 'object', typeName: settingSchema.type, def: settingSchema };
+    if (settingSchema && typeof settingSchema === "object") {
+        return { kind: "object", typeName: settingSchema.type, def: settingSchema };
     }
-    return { kind: 'unknown' };
+    return { kind: "unknown" };
 }
 
 // image/image_picker hallucination is already fully covered by
 // validateOutput() (§6 — do not duplicate). product_picker/collection are
 // handled separately by validateDataReferences() below, not here, so a
 // single error code isn't overloaded with two different meanings.
-const SKIPPED_TYPE_NAMES = new Set(['image', 'image_picker', 'product_picker', 'collection']);
+const SKIPPED_TYPE_NAMES = new Set(["image", "image_picker", "product_picker", "collection"]);
 // Free-form merchant content types — §16: "the goal is schema correctness,
 // not content policing." Only a lightweight JS-type check applies (string),
 // no pattern/format validation, so ordinary merchant copy is never rejected
 // for containing punctuation, HTML, long text, etc.
-const FREEFORM_STRING_TYPE_NAMES = new Set(['text', 'textarea', 'inline_richtext', 'richtext', 'html', 'url', 'color', 'video']);
+const FREEFORM_STRING_TYPE_NAMES = new Set(["text", "textarea", "inline_richtext", "richtext", "html", "url", "color", "video"]);
 
 /**
  * Validates ONE setting's value against ONE setting schema definition.
@@ -148,15 +155,16 @@ const FREEFORM_STRING_TYPE_NAMES = new Set(['text', 'textarea', 'inline_richtext
  * NAME for form-input blocks, e.g. blocks/textarea.json's own `required`
  * field, which is itself just a boolean-enum setting like any other).
  */
-function validateSettingValue(settingSchema, value, path) {
+export function validateSettingValue(settingSchema: SettingSchema | undefined, value: unknown, path: string): ValidationIssue[] {
     if (value === undefined) return [];
 
-    const { kind, typeName, options, def } = getSettingKind(settingSchema);
+    const kind = getSettingKind(settingSchema);
 
-    if (kind === 'typeName') {
+    if (kind.kind === "typeName") {
+        const { typeName } = kind;
         if (SKIPPED_TYPE_NAMES.has(typeName)) return [];
         if (FREEFORM_STRING_TYPE_NAMES.has(typeName)) {
-            if (typeof value !== 'string') {
+            if (typeof value !== "string") {
                 return [makeIssue(ERROR_CODES.SETTING_INVALID_TYPE, path, `expected a string for "${typeName}" setting, got ${typeof value}`)];
             }
             return [];
@@ -166,46 +174,47 @@ function validateSettingValue(settingSchema, value, path) {
         return [];
     }
 
-    if (kind === 'enum') {
-        const stringOptions = options.map(o => String(o));
+    if (kind.kind === "enum") {
+        const stringOptions = kind.options.map(o => String(o));
         if (!stringOptions.includes(String(value))) {
-            return [makeIssue(ERROR_CODES.SETTING_INVALID_OPTION, path, `value ${JSON.stringify(value)} is not one of the allowed options ${JSON.stringify(options)}`)];
+            return [makeIssue(ERROR_CODES.SETTING_INVALID_OPTION, path, `value ${JSON.stringify(value)} is not one of the allowed options ${JSON.stringify(kind.options)}`)];
         }
         return [];
     }
 
-    if (kind === 'object') {
-        if (typeName === 'checkbox') {
-            if (typeof value !== 'boolean') {
+    if (kind.kind === "object") {
+        const { typeName, def } = kind;
+        if (typeName === "checkbox") {
+            if (typeof value !== "boolean") {
                 return [makeIssue(ERROR_CODES.SETTING_INVALID_TYPE, path, `expected a boolean for checkbox setting, got ${typeof value} (${JSON.stringify(value)})`)];
             }
             return [];
         }
-        if (typeName === 'number' || typeName === 'range') {
-            if (typeof value !== 'number' || Number.isNaN(value)) {
+        if (typeName === "number" || typeName === "range") {
+            if (typeof value !== "number" || Number.isNaN(value)) {
                 return [makeIssue(ERROR_CODES.SETTING_INVALID_TYPE, path, `expected a number for "${typeName}" setting, got ${typeof value} (${JSON.stringify(value)})`)];
             }
-            if (typeof def.min === 'number' && value < def.min) {
+            if (typeof def.min === "number" && value < def.min) {
                 return [makeIssue(ERROR_CODES.SETTING_OUT_OF_RANGE, path, `value ${value} is below the minimum ${def.min}`)];
             }
-            if (typeof def.max === 'number' && value > def.max) {
+            if (typeof def.max === "number" && value > def.max) {
                 return [makeIssue(ERROR_CODES.SETTING_OUT_OF_RANGE, path, `value ${value} exceeds the maximum ${def.max}`)];
             }
             return [];
         }
-        if (typeName === 'select') {
+        if (typeName === "select") {
             // Documented by SCHEMA_CREATION_GUIDE.md but not exercised by any
             // current real schema (§30/§32 — no schema was invented to test
             // this; see PHASE6_REPORT.md "Known limitations").
-            const values = Array.isArray(def.options) ? def.options.map(o => (o && typeof o === 'object') ? o.value : o) : [];
+            const values = Array.isArray(def.options) ? def.options.map(o => (o && typeof o === "object") ? o.value : o) : [];
             if (values.length > 0 && !values.map(String).includes(String(value))) {
                 return [makeIssue(ERROR_CODES.SETTING_INVALID_OPTION, path, `value ${JSON.stringify(value)} is not one of the allowed select options ${JSON.stringify(values)}`)];
             }
             return [];
         }
-        if (SKIPPED_TYPE_NAMES.has(typeName)) return [];
-        if (FREEFORM_STRING_TYPE_NAMES.has(typeName)) {
-            if (typeof value !== 'string') {
+        if (typeName && SKIPPED_TYPE_NAMES.has(typeName)) return [];
+        if (typeName && FREEFORM_STRING_TYPE_NAMES.has(typeName)) {
+            if (typeof value !== "string") {
                 return [makeIssue(ERROR_CODES.SETTING_INVALID_TYPE, path, `expected a string for "${typeName}" setting, got ${typeof value}`)];
             }
             return [];
@@ -216,6 +225,14 @@ function validateSettingValue(settingSchema, value, path) {
     return [];
 }
 
+interface WalkOwner {
+    scope: "section" | "block";
+    ownerId: string;
+    typeId: string;
+}
+
+type WalkVisitor = (key: string, settingSchema: SettingSchema | undefined, value: unknown, path: string, owner: WalkOwner) => void;
+
 /**
  * Walks every section's and every block's settings object in a validated
  * candidate, calling visitor(settingKey, settingSchemaOrUndefined, value,
@@ -224,26 +241,26 @@ function validateSettingValue(settingSchema, value, path) {
  * validateDataReferences() so the walk itself is written once (§5 — layers,
  * not one giant function, but no duplicated iteration either).
  */
-function walkSettings(config, schemas, visitor) {
+export function walkSettings(config: GenerationConfig, schemas: SchemaCatalog, visitor: WalkVisitor): void {
     const sectionById = new Map(schemas.sectionSchemas.map(s => [s.id, s]));
     const blockById = new Map(schemas.blockSchemas.map(b => [b.id, b]));
 
     for (const [sectionId, section] of Object.entries(config.sections || {})) {
         const sectionSchema = sectionById.get(section.type);
-        if (sectionSchema && section.settings && typeof section.settings === 'object') {
+        if (sectionSchema && section.settings && typeof section.settings === "object") {
             for (const [key, value] of Object.entries(section.settings)) {
                 const settingSchema = sectionSchema.settings ? sectionSchema.settings[key] : undefined;
-                visitor(key, settingSchema, value, `sections.${sectionId}.settings.${key}`, { scope: 'section', ownerId: sectionId, typeId: section.type });
+                visitor(key, settingSchema, value, `sections.${sectionId}.settings.${key}`, { scope: "section", ownerId: sectionId, typeId: section.type });
             }
         }
 
-        if (section.blocks && typeof section.blocks === 'object') {
+        if (section.blocks && typeof section.blocks === "object") {
             for (const [blockId, block] of Object.entries(section.blocks)) {
                 const blockSchema = blockById.get(block.type);
-                if (blockSchema && block.settings && typeof block.settings === 'object') {
+                if (blockSchema && block.settings && typeof block.settings === "object") {
                     for (const [key, value] of Object.entries(block.settings)) {
                         const settingSchema = blockSchema.settings ? blockSchema.settings[key] : undefined;
-                        visitor(key, settingSchema, value, `sections.${sectionId}.blocks.${blockId}.settings.${key}`, { scope: 'block', ownerId: blockId, typeId: block.type });
+                        visitor(key, settingSchema, value, `sections.${sectionId}.blocks.${blockId}.settings.${key}`, { scope: "block", ownerId: blockId, typeId: block.type });
                     }
                 }
             }
@@ -262,8 +279,8 @@ function walkSettings(config, schemas, visitor) {
  * path that reads or mutates that file at all (see theme-state.js, whose
  * `raw` passthrough already preserves it untouched — PHASE4_REPORT.md).
  */
-function validateSettings(config, schemas) {
-    const errors = [];
+export function validateSettings(config: GenerationConfig, schemas: SchemaCatalog): ValidationResult {
+    const errors: ValidationIssue[] = [];
     walkSettings(config, schemas, (key, settingSchema, value, path, owner) => {
         if (settingSchema === undefined) {
             errors.push(makeIssue(
@@ -293,33 +310,33 @@ function validateSettings(config, schemas) {
 // reference").
 // ---------------------------------------------------------------------------
 
-const DATA_REFERENCE_TYPE_NAMES = new Set(['product_picker', 'collection']);
+const DATA_REFERENCE_TYPE_NAMES = new Set(["product_picker", "collection"]);
 
-function isKnownReference(typeName, value, knownMerchantData) {
-    if (typeName === 'product_picker') {
-        return Array.isArray(knownMerchantData.products) && knownMerchantData.products.includes(value);
+function isKnownReference(typeName: string | undefined, value: unknown, knownMerchantData: KnownMerchantData): boolean {
+    if (typeName === "product_picker") {
+        return Array.isArray(knownMerchantData.products) && knownMerchantData.products.includes(value as string);
     }
-    if (typeName === 'collection') {
-        return Array.isArray(knownMerchantData.collections) && knownMerchantData.collections.includes(value);
+    if (typeName === "collection") {
+        return Array.isArray(knownMerchantData.collections) && knownMerchantData.collections.includes(value as string);
     }
     return false;
 }
 
-function validateDataReferences(config, schemas, context = {}) {
+export function validateDataReferences(config: GenerationConfig, schemas: SchemaCatalog, context: { knownMerchantData?: KnownMerchantData } = {}): ValidationResult {
     const knownMerchantData = context.knownMerchantData || {};
-    const errors = [];
+    const errors: ValidationIssue[] = [];
 
     walkSettings(config, schemas, (key, settingSchema, value, path) => {
         if (settingSchema === undefined) return; // SETTING_UNKNOWN already covers this via validateSettings()
-        const { typeName } = getSettingKind(settingSchema);
-        if (!DATA_REFERENCE_TYPE_NAMES.has(typeName)) return;
-        if (value === '' || value === null || value === undefined) return; // explicitly left blank — safe
+        const { typeName } = getSettingKind(settingSchema) as { typeName?: string };
+        if (!typeName || !DATA_REFERENCE_TYPE_NAMES.has(typeName)) return;
+        if (value === "" || value === null || value === undefined) return; // explicitly left blank — safe
 
-        if (typeof value !== 'string' || !isKnownReference(typeName, value, knownMerchantData)) {
+        if (typeof value !== "string" || !isKnownReference(typeName, value, knownMerchantData)) {
             errors.push(makeIssue(
                 ERROR_CODES.DATA_REFERENCE_HALLUCINATED,
                 path,
-                `"${key}" (${typeName}) has value ${JSON.stringify(value)}, which is not a known merchant ${typeName === 'product_picker' ? 'product' : 'collection'} handle — leave this field empty rather than inventing one.`
+                `"${key}" (${typeName}) has value ${JSON.stringify(value)}, which is not a known merchant ${typeName === "product_picker" ? "product" : "collection"} handle — leave this field empty rather than inventing one.`
             ));
         }
     });
@@ -337,15 +354,15 @@ function validateDataReferences(config, schemas, context = {}) {
 // blocks a candidate on its own.
 // ---------------------------------------------------------------------------
 
-function validateThemeCompatibility(themeState, templateName) {
-    const warnings = [];
+export function validateThemeCompatibility(themeState: ThemeState | null | undefined, templateName: string): ValidationResult {
+    const warnings: ValidationIssue[] = [];
     if (!themeState) return emptyResult();
 
     if (!themeState.validation || !themeState.validation.valid) {
         warnings.push(makeIssue(
-            'THEME_STATE_STRUCTURAL_ISSUE',
-            'themeState',
-            `The current ThemeState has ${(themeState.validation && themeState.validation.errors.length) || 'unknown'} structural error(s) — see themeState.validation for details. This does not block candidate generation.`
+            "THEME_STATE_STRUCTURAL_ISSUE",
+            "themeState",
+            `The current ThemeState has ${(themeState.validation && themeState.validation.errors.length) || "unknown"} structural error(s) — see themeState.validation for details. This does not block candidate generation.`
         ));
     }
 
@@ -355,7 +372,7 @@ function validateThemeCompatibility(themeState, templateName) {
         const unknownSections = Object.values(summary.sections).filter(s => !s.knownToAI).length;
         if (unknownSections > 0) {
             warnings.push(makeIssue(
-                'THEME_STATE_UNKNOWN_COMPONENTS',
+                "THEME_STATE_UNKNOWN_COMPONENTS",
                 `themeState.templates.${templateName}`,
                 `${unknownSections} section(s) currently on "${templateName}" are not recognized by the AI schema catalog — they are preserved as-is (never AI-editable) and are informational context only.`
             ));
@@ -370,8 +387,14 @@ function validateThemeCompatibility(themeState, templateName) {
 // pipeline diagram: Output Validation happens BEFORE this layer runs).
 // ---------------------------------------------------------------------------
 
-function validateCandidate(config, schemas, context = {}) {
-    const { templateName = 'index', knownMerchantData = {}, themeState = null } = context;
+export interface ValidateCandidateContext {
+    templateName?: string;
+    knownMerchantData?: KnownMerchantData;
+    themeState?: ThemeState | null;
+}
+
+export function validateCandidate(config: GenerationConfig, schemas: SchemaCatalog, context: ValidateCandidateContext = {}): ValidationResult {
+    const { templateName = "index", knownMerchantData = {}, themeState = null } = context;
 
     const results = [
         validateAllowedOn(config, schemas, templateName),
@@ -384,16 +407,3 @@ function validateCandidate(config, schemas, context = {}) {
 
     return mergeResults(results);
 }
-
-module.exports = {
-    ERROR_CODES,
-    makeIssue,
-    validateAllowedOn,
-    getSettingKind,
-    validateSettingValue,
-    walkSettings,
-    validateSettings,
-    validateDataReferences,
-    validateThemeCompatibility,
-    validateCandidate
-};

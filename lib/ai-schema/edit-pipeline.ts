@@ -30,17 +30,31 @@
  * worth calling out explicitly, per §27's own warning.
  */
 
-const instrumentation = require('./instrumentation');
-const { retrieveRelevantSchemas } = require('./retrieval');
-const { makeAIRequest } = require('./ai-client');
-const {
+import * as instrumentation from "./instrumentation";
+import { retrieveRelevantSchemas } from "./retrieval";
+import { makeAIRequest } from "./ai-client";
+import {
     OPERATION_TYPES,
     resolveSectionTarget,
     resolveBlockTarget,
     validateOperation,
     applyOperationToThemeState
-} = require('./operations');
-const { applyThemeState } = require('./apply');
+} from "./operations";
+// apply.js stays plain CommonJS (out of scope — Shopify-facing apply path);
+// esModuleInterop lets this named import work against its `module.exports`.
+import { applyThemeState } from "./apply";
+import type {
+    EditTurnResult,
+    KnownMerchantData,
+    Operation,
+    OperationTarget,
+    SchemaCatalog,
+    SectionTargetResolution,
+    TargetContext,
+    TargetResolutionCandidate,
+    ThemeState,
+    ValidationIssue
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // §29/§30 — deterministic request classification. Intentionally small: a
@@ -49,15 +63,15 @@ const { applyThemeState } = require('./apply');
 // count.
 // ---------------------------------------------------------------------------
 
-const CREATE_SIGNAL_PHRASES = ['create a', 'create an', 'build a', 'build me', 'design a', 'generate a', 'make me a store', 'make a store', 'make a homepage', 'redesign', 'entire store', 'whole store', 'entire homepage'];
-const EDIT_VERBS = ['change', 'update', 'remove', 'delete', 'add', 'move', 'replace', 'edit', 'modify', 'set'];
+export const CREATE_SIGNAL_PHRASES = ["create a", "create an", "build a", "build me", "design a", "generate a", "make me a store", "make a store", "make a homepage", "redesign", "entire store", "whole store", "entire homepage"];
+export const EDIT_VERBS = ["change", "update", "remove", "delete", "add", "move", "replace", "edit", "modify", "set"];
 
 // A request only has a legitimate reason to target NO existing section when
 // it's asking to CREATE one — everything else (update/remove/a vague "change
 // one section" with no section named) needs an existing target, so a
 // NOT_FOUND resolution there must ask which section rather than let the AI
 // guess an operation with zero grounding.
-const ADD_SIGNAL_VERBS = ['add', 'create', 'insert', 'new'];
+export const ADD_SIGNAL_VERBS = ["add", "create", "insert", "new"];
 
 // A removal is a complete instruction the moment its target is identified —
 // "remove the testimonials section" has nothing left to ask about, unlike
@@ -65,17 +79,17 @@ const ADD_SIGNAL_VERBS = ['add', 'create', 'insert', 'new'];
 // hasChangeDetails() would otherwise see nothing but generic words + the
 // target's own identity left after stripping and (wrongly) ask "what would
 // you like to change?" for a request that never needed an answer.
-const REMOVE_SIGNAL_VERBS = ['remove', 'delete'];
+const REMOVE_SIGNAL_VERBS = ["remove", "delete"];
 
-function classifyRequest(userPrompt) {
-    const lower = (userPrompt || '').toLowerCase();
+export function classifyRequest(userPrompt: string): "INITIAL_GENERATION" | "TARGETED_EDIT" | "AMBIGUOUS" {
+    const lower = (userPrompt || "").toLowerCase();
     if (CREATE_SIGNAL_PHRASES.some(phrase => lower.includes(phrase))) {
-        return 'INITIAL_GENERATION';
+        return "INITIAL_GENERATION";
     }
     if (EDIT_VERBS.some(verb => new RegExp(`\\b${verb}\\b`).test(lower))) {
-        return 'TARGETED_EDIT';
+        return "TARGETED_EDIT";
     }
-    return 'AMBIGUOUS';
+    return "AMBIGUOUS";
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +98,8 @@ function classifyRequest(userPrompt) {
 // second question format.
 // ---------------------------------------------------------------------------
 
-function buildAmbiguityQuestion(candidates, kind) {
-    const options = candidates.map((c, i) => `${i + 1}. ${c.sectionId || c.blockId} (${c.type})`).join('\n');
+export function buildAmbiguityQuestion(candidates: TargetResolutionCandidate[], kind: string): string {
+    const options = candidates.map((c, i) => `${i + 1}. ${"sectionId" in c ? c.sectionId : c.blockId} (${c.type})`).join("\n");
     return `Which ${kind} did you mean?\n${options}`;
 }
 
@@ -104,27 +118,27 @@ function buildAmbiguityQuestion(candidates, kind) {
 // clarification answer) — same rule, one definition, either path.
 // ---------------------------------------------------------------------------
 
-const GENERIC_INTENT_WORDS = new Set([
-    'the', 'a', 'an', 'to', 'of', 'on', 'for', 'my', 'this', 'that', 'it',
-    'please', 'i', 'want', 'would', 'like', 'me', 'can', 'you', 'need', 'is',
+export const GENERIC_INTENT_WORDS = new Set([
+    "the", "a", "an", "to", "of", "on", "for", "my", "this", "that", "it",
+    "please", "i", "want", "would", "like", "me", "can", "you", "need", "is",
     // Structural/vague nouns naming WHAT KIND of thing is being touched
     // (already established by the resolved target itself), not WHAT the
     // new value should be.
-    'one', 'some', 'section', 'block', 'content',
+    "one", "some", "section", "block", "content",
     // WHERE, not WHAT — answers "which area of the theme", the same
     // question target RESOLUTION already asks, not "what should it say/look
     // like now" (what hasChangeDetails() actually needs to see).
-    'homepage', 'home', 'page', 'template', 'site', 'store', 'website'
+    "homepage", "home", "page", "template", "site", "store", "website"
 ]);
 
-function intentTokenize(text) {
-    return (text || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function intentTokenize(text: string | undefined): string[] {
+    return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-function hasChangeDetails(intentText, target) {
+export function hasChangeDetails(intentText: string | null | undefined, target: { sectionId?: string | null; blockId?: string | null; type?: string | null; blockType?: string | null }): boolean {
     const targetTokens = new Set(intentTokenize([target.sectionId, target.blockId, target.type, target.blockType]
-        .filter(Boolean).join(' ').replace(/[-_]/g, ' ')));
-    const remaining = intentTokenize(intentText).filter(token =>
+        .filter(Boolean).join(" ").replace(/[-_]/g, " ")));
+    const remaining = intentTokenize(intentText || undefined).filter(token =>
         !GENERIC_INTENT_WORDS.has(token) && !targetTokens.has(token) && !EDIT_VERBS.includes(token));
     return remaining.length > 0;
 }
@@ -137,10 +151,15 @@ function hasChangeDetails(intentText, target) {
 // bounded, already tested) rather than the full 69-schema catalog.
 // ---------------------------------------------------------------------------
 
-function buildProposalSystemPrompt(templateName, targetContext, candidatePool) {
+interface CandidatePool {
+    sections: Array<{ id: string; label?: string; summary?: string }>;
+    blocks: Array<{ id: string; label?: string; summary?: string }>;
+}
+
+export function buildProposalSystemPrompt(templateName: string, targetContext: TargetContext | null, candidatePool: CandidatePool | null): string {
     let rules = `You are a Shopify theme EDITOR. The merchant wants exactly ONE targeted change to their EXISTING theme. Propose exactly ONE structured operation as JSON:
 {
-  "operation": "<one of: ${OPERATION_TYPES.join(', ')}>",
+  "operation": "<one of: ${OPERATION_TYPES.join(", ")}>",
   "target": { "templateName": "${templateName}", "sectionId": "<existing section id, if editing/removing one>", "blockId": "<existing block id, if editing/removing one>" },
   "changes": { "settings": { }, "type": "<existing schema type id, only for add_section/add_block>", "position": "start|end" }
 }
@@ -162,10 +181,10 @@ CRITICAL RULES:
     return rules;
 }
 
-function buildProposalUserPrompt(userPrompt, repairErrors) {
+export function buildProposalUserPrompt(userPrompt: string, repairErrors: string[] | null): string {
     let prompt = `Merchant request: "${userPrompt}"\n\nProduce the operation JSON now.`;
     if (repairErrors && repairErrors.length > 0) {
-        prompt += `\n\nYour previous response was invalid for these reasons: ${repairErrors.join('; ')}. Fix these issues and respond again with ONLY the corrected JSON object.`;
+        prompt += `\n\nYour previous response was invalid for these reasons: ${repairErrors.join("; ")}. Fix these issues and respond again with ONLY the corrected JSON object.`;
     }
     return prompt;
 }
@@ -185,8 +204,14 @@ function buildProposalUserPrompt(userPrompt, repairErrors) {
 // here too).
 // ---------------------------------------------------------------------------
 
-function buildSectionListingAcrossTemplates(themeState) {
-    const listing = [];
+export interface SectionListingEntry {
+    templateName: string;
+    sectionId: string;
+    type: string;
+}
+
+export function buildSectionListingAcrossTemplates(themeState: ThemeState): SectionListingEntry[] {
+    const listing: SectionListingEntry[] = [];
     for (const [templateName, template] of Object.entries(themeState.templates || {})) {
         for (const [sectionId, section] of Object.entries((template.raw && template.raw.sections) || {})) {
             listing.push({ templateName, sectionId, type: section.type });
@@ -195,7 +220,7 @@ function buildSectionListingAcrossTemplates(themeState) {
     return listing;
 }
 
-function buildTargetResolutionSystemPrompt(sectionListing) {
+export function buildTargetResolutionSystemPrompt(sectionListing: SectionListingEntry[]): string {
     return `You are helping locate WHICH EXISTING section of a Shopify theme a merchant's edit request refers to. The merchant's own words may be vague, or may name another area only as a LANDMARK for finding something else ("the section before the footer", "above the header") rather than naming that area as the actual target — use your judgment about what they actually mean, not just keyword overlap.
 
 Respond with EXACTLY ONE JSON object, in ONE of these two shapes:
@@ -212,24 +237,37 @@ EXISTING SECTIONS (every section in every template/page of this theme):
 ${JSON.stringify(sectionListing)}`;
 }
 
-function buildTargetResolutionUserPrompt(userPrompt, repairErrors) {
+export function buildTargetResolutionUserPrompt(userPrompt: string, repairErrors: string[] | null): string {
     let prompt = `Merchant request: "${userPrompt}"\n\nProduce the JSON now.`;
     if (repairErrors && repairErrors.length > 0) {
-        prompt += `\n\nYour previous response was invalid for these reasons: ${repairErrors.join('; ')}. Fix these issues and respond again with ONLY the corrected JSON object.`;
+        prompt += `\n\nYour previous response was invalid for these reasons: ${repairErrors.join("; ")}. Fix these issues and respond again with ONLY the corrected JSON object.`;
     }
     return prompt;
 }
 
-function validateTargetResolution(resolution, themeState) {
-    if (!resolution || typeof resolution !== 'object') {
-        return { valid: false, errors: [{ message: 'response is not a JSON object' }] };
+export interface TargetResolutionAI {
+    confident: boolean;
+    templateName?: string;
+    sectionId?: string;
+    clarifyingQuestion?: string;
+}
+
+interface MessageValidationResult {
+    valid: boolean;
+    errors: Array<{ message: string }>;
+}
+
+export function validateTargetResolution(resolution: unknown, themeState: ThemeState): MessageValidationResult {
+    if (!resolution || typeof resolution !== "object") {
+        return { valid: false, errors: [{ message: "response is not a JSON object" }] };
     }
-    if (typeof resolution.confident !== 'boolean') {
+    const r = resolution as Partial<TargetResolutionAI>;
+    if (typeof r.confident !== "boolean") {
         return { valid: false, errors: [{ message: '"confident" must be a boolean' }] };
     }
-    if (resolution.confident === true) {
-        const { templateName, sectionId } = resolution;
-        if (typeof templateName !== 'string' || typeof sectionId !== 'string') {
+    if (r.confident === true) {
+        const { templateName, sectionId } = r;
+        if (typeof templateName !== "string" || typeof sectionId !== "string") {
             return { valid: false, errors: [{ message: 'confident:true requires string "templateName" and "sectionId"' }] };
         }
         const template = themeState.templates[templateName];
@@ -239,7 +277,7 @@ function validateTargetResolution(resolution, themeState) {
         }
         return { valid: true, errors: [] };
     }
-    if (resolution.clarifyingQuestion !== undefined && (typeof resolution.clarifyingQuestion !== 'string' || !resolution.clarifyingQuestion.trim())) {
+    if (r.clarifyingQuestion !== undefined && (typeof r.clarifyingQuestion !== "string" || !r.clarifyingQuestion.trim())) {
         return { valid: false, errors: [{ message: 'if present, "clarifyingQuestion" must be a non-empty string' }] };
     }
     return { valid: true, errors: [] };
@@ -251,28 +289,28 @@ function validateTargetResolution(resolution, themeState) {
  * above) is what actually decides whether the AI's pick is trustworthy; this
  * function never returns a target that doesn't verifiably exist.
  */
-async function runTargetResolutionStage({ userPrompt, themeState, requestId }) {
+export async function runTargetResolutionStage({ userPrompt, themeState, requestId }: { userPrompt: string; themeState: ThemeState; requestId: string }): Promise<{ resolution: TargetResolutionAI | null; validation: MessageValidationResult; repaired: boolean }> {
     const sectionListing = buildSectionListingAcrossTemplates(themeState);
     const systemPrompt = buildTargetResolutionSystemPrompt(sectionListing);
 
-    function parseAndValidate(content) {
-        let resolution;
+    function parseAndValidate(content: string | undefined): { resolution: TargetResolutionAI | null; validation: MessageValidationResult } {
+        let resolution: TargetResolutionAI;
         try {
-            resolution = JSON.parse(content);
+            resolution = JSON.parse(content!);
         } catch (error) {
-            return { resolution: null, validation: { valid: false, errors: [{ message: `not valid JSON: ${error.message}` }] } };
+            return { resolution: null, validation: { valid: false, errors: [{ message: `not valid JSON: ${(error as Error).message}` }] } };
         }
         return { resolution, validation: validateTargetResolution(resolution, themeState) };
     }
 
-    const firstContent = await makeAIRequest(buildTargetResolutionUserPrompt(userPrompt, null), systemPrompt, 2, { requestId, callType: 'target_resolution' });
+    const firstContent = await makeAIRequest(buildTargetResolutionUserPrompt(userPrompt, null), systemPrompt, 2, { requestId, callType: "target_resolution" });
     let { resolution, validation } = parseAndValidate(firstContent);
     let repaired = false;
 
     if (!validation.valid) {
         repaired = true;
         const repairErrors = validation.errors.map(e => e.message);
-        const repairContent = await makeAIRequest(buildTargetResolutionUserPrompt(userPrompt, repairErrors), systemPrompt, 2, { requestId, callType: 'target_resolution_repair' });
+        const repairContent = await makeAIRequest(buildTargetResolutionUserPrompt(userPrompt, repairErrors), systemPrompt, 2, { requestId, callType: "target_resolution_repair" });
         ({ resolution, validation } = parseAndValidate(repairContent));
     }
 
@@ -284,28 +322,37 @@ async function runTargetResolutionStage({ userPrompt, themeState, requestId }) {
  * generation.js's runPlanningStage() already established for GenerationPlan
  * (§21's "bounded recovery" architecture, reused, not reinvented).
  */
-async function runOperationProposalStage({ userPrompt, templateName, targetContext, candidatePool, themeState, schemas, knownMerchantData, requestId }) {
+export async function runOperationProposalStage({ userPrompt, templateName, targetContext, candidatePool, themeState, schemas, knownMerchantData, requestId }: {
+    userPrompt: string;
+    templateName: string;
+    targetContext: TargetContext | null;
+    candidatePool: CandidatePool | null;
+    themeState: ThemeState;
+    schemas: SchemaCatalog;
+    knownMerchantData?: KnownMerchantData;
+    requestId: string;
+}): Promise<{ operation: Operation | null; validation: { valid: boolean; errors: ValidationIssue[] }; repaired: boolean }> {
     const systemPrompt = buildProposalSystemPrompt(templateName, targetContext, candidatePool);
     const validationContext = { themeState, schemas, knownMerchantData };
 
-    function parseAndValidate(content) {
-        let operation;
+    function parseAndValidate(content: string | undefined): { operation: Operation | null; validation: { valid: boolean; errors: ValidationIssue[] } } {
+        let operation: Operation;
         try {
-            operation = JSON.parse(content);
+            operation = JSON.parse(content!);
         } catch (error) {
-            return { operation: null, validation: { valid: false, errors: [{ code: 'OPERATION_INVALID', path: 'operation', message: `not valid JSON: ${error.message}` }] } };
+            return { operation: null, validation: { valid: false, errors: [{ code: "OPERATION_INVALID", path: "operation", message: `not valid JSON: ${(error as Error).message}` }] } };
         }
         return { operation, validation: validateOperation(operation, validationContext) };
     }
 
-    const firstContent = await makeAIRequest(buildProposalUserPrompt(userPrompt, null), systemPrompt, 2, { requestId, callType: 'operation_proposal' });
+    const firstContent = await makeAIRequest(buildProposalUserPrompt(userPrompt, null), systemPrompt, 2, { requestId, callType: "operation_proposal" });
     let { operation, validation } = parseAndValidate(firstContent);
     let repaired = false;
 
     if (!validation.valid) {
         repaired = true;
         const repairErrors = validation.errors.map(e => e.message);
-        const repairContent = await makeAIRequest(buildProposalUserPrompt(userPrompt, repairErrors), systemPrompt, 2, { requestId, callType: 'operation_proposal_repair' });
+        const repairContent = await makeAIRequest(buildProposalUserPrompt(userPrompt, repairErrors), systemPrompt, 2, { requestId, callType: "operation_proposal_repair" });
         ({ operation, validation } = parseAndValidate(repairContent));
     }
 
@@ -315,6 +362,17 @@ async function runOperationProposalStage({ userPrompt, templateName, targetConte
 // ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
+
+export interface RunTargetedEditOptions {
+    themeState: ThemeState;
+    schemas: SchemaCatalog;
+    knownMerchantData?: KnownMerchantData;
+    autoApply?: boolean;
+    themeRoot?: string;
+    dryRunApply?: boolean;
+    requestId?: string;
+    templateName?: string;
+}
 
 /**
  * options:
@@ -329,7 +387,7 @@ async function runOperationProposalStage({ userPrompt, templateName, targetConte
  *   - themeRoot / dryRunApply: forwarded to applyThemeState() when
  *     autoApply is set.
  */
-async function runTargetedEdit(userPrompt, options = {}) {
+export async function runTargetedEdit(userPrompt: string, options: RunTargetedEditOptions): Promise<EditTurnResult> {
     const {
         themeState,
         schemas,
@@ -337,20 +395,20 @@ async function runTargetedEdit(userPrompt, options = {}) {
         autoApply = false,
         themeRoot,
         dryRunApply = false,
-        requestId = instrumentation.nextRequestId('edit')
+        requestId = instrumentation.nextRequestId("edit")
     } = options;
     // Mutable: an AI-assisted resolution below (§10/§29) can switch this to
     // a DIFFERENT template than the one the turn started in, when the
     // merchant's own wording named no section in the default scope.
-    let templateName = options.templateName || 'index';
+    let templateName = options.templateName || "index";
 
-    if (!themeState) throw new Error('runTargetedEdit() requires a ThemeState');
-    if (!schemas || !Array.isArray(schemas.sectionSchemas)) throw new Error('runTargetedEdit() requires the full AI schema catalog');
+    if (!themeState) throw new Error("runTargetedEdit() requires a ThemeState");
+    if (!schemas || !Array.isArray(schemas.sectionSchemas)) throw new Error("runTargetedEdit() requires the full AI schema catalog");
 
     const startTime = Date.now();
     const classification = classifyRequest(userPrompt);
 
-    if (classification !== 'TARGETED_EDIT') {
+    if (classification !== "TARGETED_EDIT") {
         instrumentation.logEditPipeline({ requestId, status: classification, classification, durationMs: Date.now() - startTime });
         return { status: classification, classification };
     }
@@ -360,7 +418,7 @@ async function runTargetedEdit(userPrompt, options = {}) {
     // section id embedded in the prompt (unlikely from a human, common from
     // a programmatic caller) short-circuits via resolveSectionTarget()'s own
     // exact-match fast path.
-    let sectionTarget = resolveSectionTarget(themeState, templateName, userPrompt, schemas);
+    let sectionTarget: SectionTargetResolution = resolveSectionTarget(themeState, templateName, userPrompt, schemas);
 
     // Keyword-overlap scoring can fail two different ways — a tie
     // (AMBIGUOUS, e.g. a generic word like "content" happens to sit in
@@ -379,19 +437,19 @@ async function runTargetedEdit(userPrompt, options = {}) {
     // still reach the AI proposal below.
     const targetTemplate = themeState.templates[templateName];
     let resolutionAiCallCount = 0;
-    if ((sectionTarget.status === 'AMBIGUOUS' || sectionTarget.status === 'NOT_FOUND') && targetTemplate) {
-        const looksLikeAdd = sectionTarget.status === 'NOT_FOUND' && ADD_SIGNAL_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, 'i').test(userPrompt));
+    if ((sectionTarget.status === "AMBIGUOUS" || sectionTarget.status === "NOT_FOUND") && targetTemplate) {
+        const looksLikeAdd = sectionTarget.status === "NOT_FOUND" && ADD_SIGNAL_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, "i").test(userPrompt));
         if (!looksLikeAdd) {
             const { resolution, validation: resolutionValidation, repaired: resolutionRepaired } = await runTargetResolutionStage({ userPrompt, themeState, requestId });
             resolutionAiCallCount = resolutionRepaired ? 2 : 1;
 
-            if (resolutionValidation.valid && resolution.confident === true) {
+            if (resolutionValidation.valid && resolution && resolution.confident === true) {
                 // The AI identified an existing target — possibly in a
                 // DIFFERENT template than this turn started in — so switch
                 // scope to match and resolve it via the exact-id fast path
                 // (already verified to exist by validateTargetResolution).
-                templateName = resolution.templateName;
-                sectionTarget = resolveSectionTarget(themeState, templateName, resolution.sectionId, schemas);
+                templateName = resolution.templateName!;
+                sectionTarget = resolveSectionTarget(themeState, templateName, resolution.sectionId!, schemas);
             } else {
                 // Not confident (or an invalid/hallucinated response even
                 // after one repair attempt) — ask the merchant instead of
@@ -401,23 +459,23 @@ async function runTargetedEdit(userPrompt, options = {}) {
                 // unusable, an AMBIGUOUS tie still has real (if imperfect)
                 // tied candidates to fall back to, which is a better last
                 // resort than a generic prompt with nothing behind it.
-                const useDeterministicFallback = !(resolutionValidation.valid && resolution.clarifyingQuestion) && sectionTarget.status === 'AMBIGUOUS';
-                const result = useDeterministicFallback
+                const useDeterministicFallback = !(resolutionValidation.valid && resolution && resolution.clarifyingQuestion) && sectionTarget.status === "AMBIGUOUS";
+                const result: EditTurnResult = useDeterministicFallback && sectionTarget.status === "AMBIGUOUS"
                     ? {
-                        status: 'NEEDS_CLARIFICATION',
+                        status: "NEEDS_CLARIFICATION",
                         classification,
                         targetStatus: sectionTarget.status,
                         templateName,
                         candidates: sectionTarget.candidates,
-                        questions: [buildAmbiguityQuestion(sectionTarget.candidates, 'section')]
+                        questions: [buildAmbiguityQuestion(sectionTarget.candidates, "section")]
                     }
                     : {
-                        status: 'NEEDS_CLARIFICATION',
+                        status: "NEEDS_CLARIFICATION",
                         classification,
                         targetStatus: sectionTarget.status,
                         templateName,
                         candidates: [],
-                        questions: [(resolutionValidation.valid && resolution.clarifyingQuestion) ? resolution.clarifyingQuestion : 'Which section would you like to change?']
+                        questions: [(resolutionValidation.valid && resolution && resolution.clarifyingQuestion) ? resolution.clarifyingQuestion : "Which section would you like to change?"]
                     };
                 instrumentation.logEditPipeline({ requestId, status: result.status, classification, targetStatus: sectionTarget.status, aiCallCount: resolutionAiCallCount, repaired: resolutionRepaired, durationMs: Date.now() - startTime });
                 return result;
@@ -428,8 +486,8 @@ async function runTargetedEdit(userPrompt, options = {}) {
         // same as before this change.
     }
 
-    let targetContext = null;
-    if (sectionTarget.status === 'RESOLVED') {
+    let targetContext: TargetContext | null = null;
+    if (sectionTarget.status === "RESOLVED") {
         const sectionSchema = schemas.sectionSchemas.find(s => s.id === sectionTarget.section.type);
         targetContext = {
             sectionId: sectionTarget.sectionId,
@@ -439,20 +497,20 @@ async function runTargetedEdit(userPrompt, options = {}) {
         };
 
         const blockTarget = resolveBlockTarget(sectionTarget.section, userPrompt, schemas);
-        if (blockTarget.status === 'AMBIGUOUS') {
-            const result = {
-                status: 'NEEDS_CLARIFICATION',
+        if (blockTarget.status === "AMBIGUOUS") {
+            const result: EditTurnResult = {
+                status: "NEEDS_CLARIFICATION",
                 classification,
                 targetStatus: blockTarget.status,
                 templateName,
                 sectionId: sectionTarget.sectionId,
                 candidates: blockTarget.candidates,
-                questions: [buildAmbiguityQuestion(blockTarget.candidates, 'block')]
+                questions: [buildAmbiguityQuestion(blockTarget.candidates, "block")]
             };
             instrumentation.logEditPipeline({ requestId, status: result.status, classification, targetStatus: blockTarget.status, durationMs: Date.now() - startTime });
             return result;
         }
-        if (blockTarget.status === 'RESOLVED') {
+        if (blockTarget.status === "RESOLVED") {
             const blockSchema = schemas.blockSchemas.find(b => b.id === blockTarget.block.type);
             targetContext.block = {
                 blockId: blockTarget.blockId,
@@ -472,20 +530,20 @@ async function runTargetedEdit(userPrompt, options = {}) {
         // again (conversational-edit.js's 'intent'-kind clarification), so
         // this naturally keeps asking follow-ups until there's something
         // concrete to act on.
-        const looksLikeRemove = REMOVE_SIGNAL_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, 'i').test(userPrompt));
+        const looksLikeRemove = REMOVE_SIGNAL_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, "i").test(userPrompt));
         if (!looksLikeRemove && !hasChangeDetails(userPrompt, {
             sectionId: targetContext.sectionId,
             type: targetContext.type,
             blockId: targetContext.block ? targetContext.block.blockId : undefined,
             blockType: targetContext.block ? targetContext.block.type : undefined
         })) {
-            const result = {
-                status: 'NEEDS_CLARIFICATION',
+            const result: EditTurnResult = {
+                status: "NEEDS_CLARIFICATION",
                 classification,
                 targetStatus: sectionTarget.status,
                 templateName,
                 candidates: [],
-                questions: ['What would you like to change?']
+                questions: ["What would you like to change?"]
             };
             instrumentation.logEditPipeline({ requestId, status: result.status, classification, targetStatus: sectionTarget.status, aiCallCount: resolutionAiCallCount, durationMs: Date.now() - startTime });
             return result;
@@ -495,7 +553,7 @@ async function runTargetedEdit(userPrompt, options = {}) {
     // §12 — bounded candidate pool for add-shaped requests, reusing Phase 2
     // retrieval rather than sending the full 69-schema catalog.
     const retrieved = retrieveRelevantSchemas(schemas, { userPrompt, templateName, requestId });
-    const candidatePool = {
+    const candidatePool: CandidatePool = {
         sections: retrieved.sectionSchemas.map(s => ({ id: s.id, label: s.label, summary: s.purpose })),
         blocks: retrieved.blockSchemas.map(b => ({ id: b.id, label: b.label, summary: b.purpose }))
     };
@@ -505,59 +563,40 @@ async function runTargetedEdit(userPrompt, options = {}) {
     });
 
     if (!validation.valid) {
-        const result = { status: 'FAILED', classification, targetStatus: sectionTarget.status, errors: validation.errors, operation, repaired };
-        instrumentation.logEditPipeline({ requestId, status: 'FAILED', classification, targetStatus: sectionTarget.status, operationCount: 1, repaired, aiCallCount: resolutionAiCallCount + (repaired ? 2 : 1), durationMs: Date.now() - startTime });
+        const result: EditTurnResult = { status: "FAILED", classification, targetStatus: sectionTarget.status, errors: validation.errors, operation: operation ?? undefined, repaired };
+        instrumentation.logEditPipeline({ requestId, status: "FAILED", classification, targetStatus: sectionTarget.status, operationCount: 1, repaired, aiCallCount: resolutionAiCallCount + (repaired ? 2 : 1), durationMs: Date.now() - startTime });
         return result;
     }
 
-    const executed = applyOperationToThemeState(themeState, operation, { themeState, schemas, knownMerchantData, requestId });
+    const executed = applyOperationToThemeState(themeState, operation!, { themeState, schemas, knownMerchantData, requestId });
     if (!executed.valid) {
-        const result = { status: 'FAILED', classification, targetStatus: sectionTarget.status, errors: executed.errors, operation, repaired };
-        instrumentation.logEditPipeline({ requestId, status: 'FAILED', classification, targetStatus: sectionTarget.status, operationCount: 1, repaired, aiCallCount: resolutionAiCallCount + (repaired ? 2 : 1), durationMs: Date.now() - startTime });
+        const result: EditTurnResult = { status: "FAILED", classification, targetStatus: sectionTarget.status, errors: executed.errors, operation: operation ?? undefined, repaired };
+        instrumentation.logEditPipeline({ requestId, status: "FAILED", classification, targetStatus: sectionTarget.status, operationCount: 1, repaired, aiCallCount: resolutionAiCallCount + (repaired ? 2 : 1), durationMs: Date.now() - startTime });
         return result;
     }
 
-    let applyResult = null;
+    let applyResult: unknown = null;
     if (autoApply) {
-        const changedTemplates = operation.operation === 'update_global_settings' ? [] : [operation.target.templateName];
+        const changedTemplates = operation!.operation === "update_global_settings" ? [] : [(operation!.target as OperationTarget).templateName!];
         applyResult = await applyThemeState(executed.themeState, {
             themeRoot,
             changedTemplates,
-            writeGlobalSettings: operation.operation === 'update_global_settings',
+            writeGlobalSettings: operation!.operation === "update_global_settings",
             dryRun: dryRunApply,
             requestId
         });
     }
 
-    const result = {
-        status: autoApply ? (dryRunApply ? 'DRY_RUN' : 'APPLIED') : 'PROPOSED',
+    const result: EditTurnResult = {
+        status: autoApply ? (dryRunApply ? "DRY_RUN" : "APPLIED") : "PROPOSED",
         classification,
         targetStatus: sectionTarget.status,
-        operation,
+        operation: operation!,
         changeSummary: executed.changeSummary,
-        themeState: executed.themeState,
+        themeState: executed.themeState!,
         applyResult,
         repaired
     };
     instrumentation.logEditPipeline({ requestId, status: result.status, classification, targetStatus: sectionTarget.status, operationCount: 1, repaired, aiCallCount: resolutionAiCallCount + (repaired ? 2 : 1), durationMs: Date.now() - startTime });
     return result;
 }
-
-module.exports = {
-    CREATE_SIGNAL_PHRASES,
-    EDIT_VERBS,
-    ADD_SIGNAL_VERBS,
-    classifyRequest,
-    buildAmbiguityQuestion,
-    GENERIC_INTENT_WORDS,
-    hasChangeDetails,
-    buildProposalSystemPrompt,
-    buildProposalUserPrompt,
-    runOperationProposalStage,
-    buildSectionListingAcrossTemplates,
-    buildTargetResolutionSystemPrompt,
-    buildTargetResolutionUserPrompt,
-    validateTargetResolution,
-    runTargetResolutionStage,
-    runTargetedEdit
-};

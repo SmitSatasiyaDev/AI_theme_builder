@@ -9,18 +9,18 @@
  * baseline to compare against.
  */
 
-const { randomUUID } = require('crypto');
+import { randomUUID } from "crypto";
 
-function nextRequestId(prefix = 'req') {
+export function nextRequestId(prefix = "req"): string {
     return `${prefix}_${randomUUID()}`;
 }
 
-function estimateTokensFromChars(chars) {
+export function estimateTokensFromChars(chars: number | null | undefined): number {
     if (!chars || chars < 0) return 0;
     return Math.ceil(chars / 4);
 }
 
-function logEvent(tag, payload) {
+function logEvent(tag: string, payload: Record<string, unknown>): Record<string, unknown> {
     const entry = {
         timestamp: new Date().toISOString(),
         ...payload
@@ -32,7 +32,7 @@ function logEvent(tag, payload) {
 /**
  * Log one AI provider call (OpenRouter request/response cycle).
  */
-function logAICall({
+export function logAICall({
     requestId,
     callType,
     model,
@@ -43,8 +43,19 @@ function logAICall({
     attempts = 1,
     success,
     error = null
+}: {
+    requestId?: string;
+    callType?: string;
+    model?: string;
+    promptChars?: number;
+    outputChars?: number;
+    durationMs?: number;
+    retryCount?: number;
+    attempts?: number;
+    success?: boolean;
+    error?: string | null;
 }) {
-    return logEvent('AI_CALL', {
+    return logEvent("AI_CALL", {
         requestId,
         callType,
         model,
@@ -63,7 +74,7 @@ function logAICall({
 /**
  * Log the result of validateOutput() for one generation attempt.
  */
-function logValidation({
+export function logValidation({
     requestId,
     valid,
     errorCount = 0,
@@ -71,8 +82,16 @@ function logValidation({
     sectionCount = null,
     blockCount = null,
     error = null
+}: {
+    requestId?: string;
+    valid?: boolean;
+    errorCount?: number;
+    warningCount?: number;
+    sectionCount?: number | null;
+    blockCount?: number | null;
+    error?: string | null;
 }) {
-    return logEvent('VALIDATION', {
+    return logEvent("VALIDATION", {
         requestId,
         valid,
         errorCount,
@@ -86,8 +105,8 @@ function logValidation({
 /**
  * Log a pipeline-level summary (one per runFullPipeline invocation).
  */
-function logPipeline(details) {
-    return logEvent('PIPELINE', details);
+export function logPipeline(details: Record<string, unknown>) {
+    return logEvent("PIPELINE", details);
 }
 
 /**
@@ -97,7 +116,7 @@ function logPipeline(details) {
  * vs. retrieved prompt footprint (details.fullSchemaChars vs.
  * details.retrievedSchemaChars / their estimated-token counterparts).
  */
-function logRetrieval({
+export function logRetrieval({
     requestId,
     mode,
     templateName,
@@ -113,8 +132,24 @@ function logRetrieval({
     retrievedSchemaChars = 0,
     estimatedFullTokens = 0,
     estimatedRetrievedTokens = 0
+}: {
+    requestId?: string;
+    mode?: string;
+    templateName?: string;
+    fallbackReason?: string | null;
+    ruleMatches?: unknown[];
+    defaultRuleApplied?: boolean;
+    baselineHeroApplied?: boolean;
+    candidateSectionCount?: number;
+    selectedSectionCount?: number;
+    candidateBlockCount?: number;
+    selectedBlockCount?: number;
+    fullSchemaChars?: number;
+    retrievedSchemaChars?: number;
+    estimatedFullTokens?: number;
+    estimatedRetrievedTokens?: number;
 }) {
-    return logEvent('RETRIEVAL', {
+    return logEvent("RETRIEVAL", {
         requestId,
         mode,
         templateName,
@@ -142,7 +177,7 @@ function logRetrieval({
  * for why the full schema catalog is never sent here) understanding prompt
  * was, so it can be compared against the cost of the main generation call.
  */
-function logUnderstanding({
+export function logUnderstanding({
     requestId,
     sessionId,
     status,
@@ -154,8 +189,20 @@ function logUnderstanding({
     durationMs,
     retryCount = 0,
     repaired = false
+}: {
+    requestId?: string;
+    sessionId?: string;
+    status?: string;
+    round?: number;
+    questionCount?: number;
+    missingBlockingCount?: number;
+    inputChars?: number;
+    outputChars?: number;
+    durationMs?: number;
+    retryCount?: number;
+    repaired?: boolean;
 }) {
-    return logEvent('UNDERSTANDING', {
+    return logEvent("UNDERSTANDING", {
         requestId,
         sessionId,
         status,
@@ -180,7 +227,7 @@ function logUnderstanding({
  * how much of it the AI schema catalog actually recognizes, and how the
  * resulting state validated.
  */
-function logThemeState({
+export function logThemeState({
     requestId,
     themeId,
     templateCount = 0,
@@ -194,8 +241,22 @@ function logThemeState({
     valid = null,
     errorCount = 0,
     warningCount = 0
+}: {
+    requestId?: string;
+    themeId?: string;
+    templateCount?: number;
+    sectionCount?: number;
+    blockCount?: number;
+    unknownSectionCount?: number;
+    unknownBlockCount?: number;
+    unparseableTemplateCount?: number;
+    stateChars?: number;
+    buildDurationMs?: number;
+    valid?: boolean | null;
+    errorCount?: number;
+    warningCount?: number;
 }) {
-    return logEvent('THEME_STATE', {
+    return logEvent("THEME_STATE", {
         requestId,
         themeId,
         templateCount,
@@ -221,7 +282,7 @@ function logThemeState({
  * repair loop (generation.js, 1-generate-theme.js) — how many repair
  * attempts were made and whether the final attempt succeeded (§28).
  */
-function logCandidateValidation({
+export function logCandidateValidation({
     requestId,
     stage,
     templateName,
@@ -232,8 +293,19 @@ function logCandidateValidation({
     candidateChars = 0,
     repairAttempt = 0,
     durationMs
+}: {
+    requestId?: string;
+    stage?: string;
+    templateName?: string;
+    valid?: boolean;
+    errorCount?: number;
+    warningCount?: number;
+    errorCodes?: unknown[];
+    candidateChars?: number;
+    repairAttempt?: number;
+    durationMs?: number;
 }) {
-    return logEvent('CANDIDATE_VALIDATION', {
+    return logEvent("CANDIDATE_VALIDATION", {
         requestId,
         stage,
         templateName,
@@ -253,7 +325,7 @@ function logCandidateValidation({
  * records structural measurements: how the merge broke down and whether it
  * failed closed on a conflict.
  */
-function logMerge({
+export function logMerge({
     requestId,
     templateName,
     valid,
@@ -265,8 +337,20 @@ function logMerge({
     changedSettingCount = 0,
     preservedUnknownCount = 0,
     durationMs
+}: {
+    requestId?: string;
+    templateName?: string;
+    valid?: boolean;
+    conflictCount?: number;
+    conflictCodes?: unknown[];
+    addedSectionCount?: number;
+    updatedSectionCount?: number;
+    removedSectionCount?: number;
+    changedSettingCount?: number;
+    preservedUnknownCount?: number;
+    durationMs?: number;
 }) {
-    return logEvent('MERGE', {
+    return logEvent("MERGE", {
         requestId,
         templateName,
         valid,
@@ -286,7 +370,7 @@ function logMerge({
  * addition. Never logs full file contents (§32 — "do not log complete
  * theme JSON"), only paths/counts/timing.
  */
-function logApply({
+export function logApply({
     requestId,
     dryRun = false,
     success,
@@ -294,8 +378,16 @@ function logApply({
     targets = [],
     durationMs,
     error = null
+}: {
+    requestId?: string;
+    dryRun?: boolean;
+    success?: boolean;
+    filesWritten?: number;
+    targets?: unknown[];
+    durationMs?: number;
+    error?: string | null;
 }) {
-    return logEvent('APPLY', {
+    return logEvent("APPLY", {
         requestId,
         dryRun,
         success,
@@ -312,7 +404,7 @@ function logApply({
  * that file), so this only records validation/execution measurements for
  * ONE operation.
  */
-function logOperation({
+export function logOperation({
     requestId,
     operationId,
     operation,
@@ -320,8 +412,16 @@ function logOperation({
     errorCount = 0,
     changedCount = 0,
     durationMs
+}: {
+    requestId?: string;
+    operationId?: string;
+    operation?: unknown;
+    valid?: boolean;
+    errorCount?: number;
+    changedCount?: number;
+    durationMs?: number;
 }) {
-    return logEvent('OPERATION', {
+    return logEvent("OPERATION", {
         requestId,
         operationId,
         operation,
@@ -336,14 +436,20 @@ function logOperation({
  * Log the result of one applyOperationsToThemeState() batch call — how many
  * operations, whether the whole batch committed atomically or was rejected.
  */
-function logOperationBatch({
+export function logOperationBatch({
     requestId,
     operationCount,
     valid,
     errorCount = 0,
     durationMs
+}: {
+    requestId?: string;
+    operationCount?: number;
+    valid?: boolean;
+    errorCount?: number;
+    durationMs?: number;
 }) {
-    return logEvent('OPERATION_BATCH', {
+    return logEvent("OPERATION_BATCH", {
         requestId,
         operationCount,
         valid,
@@ -357,7 +463,7 @@ function logOperationBatch({
  * layer. Captures classification, target-resolution, and AI-proposal
  * outcomes without logging full merchant content.
  */
-function logEditPipeline({
+export function logEditPipeline({
     requestId,
     status,
     classification = null,
@@ -366,8 +472,17 @@ function logEditPipeline({
     repaired = false,
     aiCallCount = 0,
     durationMs
+}: {
+    requestId?: string;
+    status?: string;
+    classification?: string | null;
+    targetStatus?: string | null;
+    operationCount?: number;
+    repaired?: boolean;
+    aiCallCount?: number;
+    durationMs?: number;
 }) {
-    return logEvent('EDIT_PIPELINE', {
+    return logEvent("EDIT_PIPELINE", {
         requestId,
         status,
         classification,
@@ -386,7 +501,7 @@ function logEditPipeline({
  * freshness) without logging full conversation history or full merchant
  * content (§34 — "do not log full conversation history/full ThemeState").
  */
-function logConversationTurn({
+export function logConversationTurn({
     requestId,
     sessionId,
     turnCount = 0,
@@ -400,8 +515,22 @@ function logConversationTurn({
     operationTypes = [],
     themeStateVersion = null,
     durationMs
+}: {
+    requestId?: string;
+    sessionId?: string;
+    turnCount?: number;
+    turnType?: string;
+    status?: string;
+    clarificationCount?: number;
+    targetResolution?: unknown;
+    aiCallCount?: number;
+    repaired?: boolean;
+    operationCount?: number;
+    operationTypes?: unknown[];
+    themeStateVersion?: string | null;
+    durationMs?: number;
 }) {
-    return logEvent('CONVERSATION_TURN', {
+    return logEvent("CONVERSATION_TURN", {
         requestId,
         sessionId,
         turnCount,
@@ -417,21 +546,3 @@ function logConversationTurn({
         durationMs
     });
 }
-
-module.exports = {
-    nextRequestId,
-    estimateTokensFromChars,
-    logAICall,
-    logValidation,
-    logPipeline,
-    logRetrieval,
-    logUnderstanding,
-    logThemeState,
-    logCandidateValidation,
-    logMerge,
-    logApply,
-    logOperation,
-    logOperationBatch,
-    logEditPipeline,
-    logConversationTurn
-};

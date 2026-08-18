@@ -15,17 +15,18 @@
  * instead of __dirname directly; everything else is unchanged from source.
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-require('dotenv').config();
-const instrumentation = require('./instrumentation');
-const { retrieveRelevantSchemas } = require('./retrieval');
+import fs from "fs/promises";
+import path from "path";
+import "dotenv/config";
+import * as instrumentation from "./instrumentation";
+import { retrieveRelevantSchemas, type RetrievalOptions } from "./retrieval";
+import type { GenerationConfig, RetrievedSchemaCatalog, SchemaCatalog, ValidateOutputResult } from "./types";
 
 // Configuration
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'moonshotai/kimi-k2.5';
-const DEBUG = process.env.DEBUG === 'true';
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "moonshotai/kimi-k2.5";
+const DEBUG = process.env.DEBUG === "true";
 
 /**
  * Load every schema file from disk (global + all sections + all blocks),
@@ -40,56 +41,56 @@ const DEBUG = process.env.DEBUG === 'true';
  * result_row.json, but sorting is kept as good practice for any future
  * id-keyed lookup over these directories.
  */
-async function loadAllSchemasFromDisk() {
-    const schemasDir = path.join(__dirname, 'schema-data');
+async function loadAllSchemasFromDisk(): Promise<SchemaCatalog> {
+    const schemasDir = path.join(__dirname, "schema-data");
 
     try {
         const globalSchema = JSON.parse(
-            await fs.readFile(path.join(schemasDir, 'global.json'), 'utf8')
+            await fs.readFile(path.join(schemasDir, "global.json"), "utf8")
         );
 
         // Load all section schemas
-        const sectionsDir = path.join(schemasDir, 'sections');
-        let sectionSchemas = [];
+        const sectionsDir = path.join(schemasDir, "sections");
+        let sectionSchemas: SchemaCatalog["sectionSchemas"] = [];
         try {
             const sectionFiles = (await fs.readdir(sectionsDir)).sort();
             sectionSchemas = await Promise.all(
                 sectionFiles
-                    .filter(f => f.endsWith('.json'))
+                    .filter(f => f.endsWith(".json"))
                     .map(async f => {
-                        const content = await fs.readFile(path.join(sectionsDir, f), 'utf8');
+                        const content = await fs.readFile(path.join(sectionsDir, f), "utf8");
                         return JSON.parse(content);
                     })
             );
         } catch (error) {
-            console.warn(`⚠️  Warning: Could not load sections from ${sectionsDir}:`, error.message);
+            console.warn(`⚠️  Warning: Could not load sections from ${sectionsDir}:`, (error as Error).message);
         }
 
         // Load all block schemas
-        const blocksDir = path.join(schemasDir, 'blocks');
-        let blockSchemas = [];
+        const blocksDir = path.join(schemasDir, "blocks");
+        let blockSchemas: SchemaCatalog["blockSchemas"] = [];
         try {
             const blockFiles = (await fs.readdir(blocksDir)).sort();
             blockSchemas = await Promise.all(
                 blockFiles
-                    .filter(f => f.endsWith('.json'))
+                    .filter(f => f.endsWith(".json"))
                     .map(async f => {
-                        const content = await fs.readFile(path.join(blocksDir, f), 'utf8');
+                        const content = await fs.readFile(path.join(blocksDir, f), "utf8");
                         return JSON.parse(content);
                     })
             );
         } catch (error) {
-            console.warn(`⚠️  Warning: Could not load blocks from ${blocksDir}:`, error.message);
+            console.warn(`⚠️  Warning: Could not load blocks from ${blocksDir}:`, (error as Error).message);
         }
 
         if (DEBUG) {
-            console.log('Debug: Loaded sections:', sectionSchemas.map(s => s.id));
-            console.log('Debug: Loaded blocks:', blockSchemas.map(b => b.id));
+            console.log("Debug: Loaded sections:", sectionSchemas.map(s => s.id));
+            console.log("Debug: Loaded blocks:", blockSchemas.map(b => b.id));
         }
 
         return { globalSchema, sectionSchemas, blockSchemas };
     } catch (error) {
-        throw new Error(`Failed to load schemas: ${error.message}`);
+        throw new Error(`Failed to load schemas: ${(error as Error).message}`);
     }
 }
 
@@ -108,7 +109,7 @@ async function loadAllSchemasFromDisk() {
  * same return shape, same content — so existing callers and the Phase 1
  * regression suite are unaffected.
  */
-async function loadSchemas(options = {}) {
+export async function loadSchemas(options: { retrieval?: RetrievalOptions } = {}): Promise<SchemaCatalog | RetrievedSchemaCatalog> {
     const fullSchemas = await loadAllSchemasFromDisk();
 
     if (!options.retrieval) {
@@ -121,7 +122,7 @@ async function loadSchemas(options = {}) {
 /**
  * Build the AI system prompt with schema constraints
  */
-function buildSystemPrompt(schemas) {
+export function buildSystemPrompt(schemas: SchemaCatalog): string {
     const { globalSchema, sectionSchemas, blockSchemas } = schemas;
 
     return `You are an AI Shopify theme configurator.
@@ -235,43 +236,48 @@ IMPORTANT: The order array should contain AT MOST 10 sections for optimal homepa
 /**
  * Make an AI request to OpenRouter with retry logic
  */
-async function makeAIRequest(userPrompt, systemPrompt, maxRetries = 3, context = {}) {
+export async function makeAIRequest(
+    userPrompt: string,
+    systemPrompt: string,
+    maxRetries = 3,
+    context: { requestId?: string; callType?: string } = {}
+): Promise<string | undefined> {
     if (!OPENROUTER_API_KEY) {
-        throw new Error('OPENROUTER_API_KEY not set in environment. Please set it in .env file');
+        throw new Error("OPENROUTER_API_KEY not set in environment. Please set it in .env file");
     }
 
-    if (!userPrompt || typeof userPrompt !== 'string') {
-        throw new Error('Invalid user prompt: must be a non-empty string');
+    if (!userPrompt || typeof userPrompt !== "string") {
+        throw new Error("Invalid user prompt: must be a non-empty string");
     }
 
-    const { requestId = instrumentation.nextRequestId('gen'), callType = 'main_generation' } = context;
+    const { requestId = instrumentation.nextRequestId("gen"), callType = "main_generation" } = context;
     const startTime = Date.now();
     const promptChars = (systemPrompt ? systemPrompt.length : 0) + userPrompt.length;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': 'https://github.com/Debutifycorp/EcomSkale',
-                    'X-Title': 'Shopify Theme AI Configurator'
+                    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/Debutifycorp/EcomSkale",
+                    "X-Title": "Shopify Theme AI Configurator"
                 },
                 body: JSON.stringify({
                     model: OPENROUTER_MODEL,
                     messages: [
                         {
-                            role: 'system',
+                            role: "system",
                             content: systemPrompt
                         },
                         {
-                            role: 'user',
+                            role: "user",
                             content: userPrompt
                         }
                     ],
                     temperature: 0.8,
-                    response_format: { type: 'json_object' }
+                    response_format: { type: "json_object" }
                 })
             });
 
@@ -290,7 +296,7 @@ async function makeAIRequest(userPrompt, systemPrompt, maxRetries = 3, context =
             const data = await response.json();
 
             if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-                throw new Error('Invalid API response format: missing choices or message');
+                throw new Error("Invalid API response format: missing choices or message");
             }
 
             const content = data.choices[0].message.content;
@@ -318,12 +324,12 @@ async function makeAIRequest(userPrompt, systemPrompt, maxRetries = 3, context =
                     retryCount: attempt - 1,
                     attempts: attempt,
                     success: false,
-                    error: error.message
+                    error: (error as Error).message
                 });
                 throw error;
             }
             const delay = Math.pow(2, attempt) * 1000;
-            console.warn(`⚠️  Attempt ${attempt} failed: ${error.message}. Retrying in ${delay}ms...`);
+            console.warn(`⚠️  Attempt ${attempt} failed: ${(error as Error).message}. Retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
@@ -332,22 +338,22 @@ async function makeAIRequest(userPrompt, systemPrompt, maxRetries = 3, context =
 /**
  * Validate AI output against schemas (comprehensive validation)
  */
-function validateOutput(output, schemas, context = {}) {
-    const { requestId = instrumentation.nextRequestId('val') } = context;
+export function validateOutput(output: string, schemas: SchemaCatalog, context: { requestId?: string } = {}): ValidateOutputResult {
+    const { requestId = instrumentation.nextRequestId("val") } = context;
     try {
-        if (!output || typeof output !== 'string') {
-            throw new Error('Invalid output: must be a non-empty string');
+        if (!output || typeof output !== "string") {
+            throw new Error("Invalid output: must be a non-empty string");
         }
 
-        const config = JSON.parse(output);
+        const config: GenerationConfig = JSON.parse(output);
 
         // Validate structure
-        if (!config.sections || typeof config.sections !== 'object') {
-            throw new Error('Invalid output: missing sections object');
+        if (!config.sections || typeof config.sections !== "object") {
+            throw new Error("Invalid output: missing sections object");
         }
 
         if (!Array.isArray(config.order)) {
-            throw new Error('Invalid output: missing order array');
+            throw new Error("Invalid output: missing order array");
         }
 
         // Validate homepage best practice: maximum 10 sections
@@ -356,15 +362,15 @@ function validateOutput(output, schemas, context = {}) {
         }
 
         if (config.order.length === 0) {
-            throw new Error('Invalid output: order array must contain at least 1 section');
+            throw new Error("Invalid output: order array must contain at least 1 section");
         }
 
         // Create lookup maps for fast validation
         const sectionMap = new Map(schemas.sectionSchemas.map(s => [s.id, s]));
         const blockMap = new Map(schemas.blockSchemas.map(b => [b.id, b]));
 
-        const errors = [];
-        const warnings = [];
+        const errors: string[] = [];
+        const warnings: string[] = [];
         let totalBlockCount = 0;
 
         // Validate each section
@@ -379,7 +385,7 @@ function validateOutput(output, schemas, context = {}) {
                 continue;
             }
 
-            const sectionSchema = sectionMap.get(section.type);
+            const sectionSchema = sectionMap.get(section.type)!;
 
             // Check for section-level notes
             if (sectionSchema._notes) {
@@ -391,9 +397,9 @@ function validateOutput(output, schemas, context = {}) {
             // Validate image_picker/image settings aren't hallucinated filenames
             if (sectionSchema.settings && section.settings) {
                 for (const [settingKey, settingType] of Object.entries(sectionSchema.settings)) {
-                    if (settingType === 'image_picker' || settingType === 'image') {
+                    if (settingType === "image_picker" || settingType === "image") {
                         const value = section.settings[settingKey];
-                        if (value && typeof value === 'string' && !value.startsWith('shopify://') && !/^https?:\/\//.test(value)) {
+                        if (value && typeof value === "string" && !value.startsWith("shopify://") && !/^https?:\/\//.test(value)) {
                             errors.push(`Section "${sectionId}" (type: "${section.type}"): setting "${settingKey}" has invalid image value "${value}" — image_picker settings must be left as an empty string ("") unless a real Shopify-hosted image URL is available. Do not invent filenames.`);
                         }
                     }
@@ -401,7 +407,7 @@ function validateOutput(output, schemas, context = {}) {
             }
 
             // Validate blocks if section has blocks
-            if (section.blocks && typeof section.blocks === 'object') {
+            if (section.blocks && typeof section.blocks === "object") {
                 const blockIds = Object.keys(section.blocks);
                 totalBlockCount += blockIds.length;
 
@@ -417,7 +423,7 @@ function validateOutput(output, schemas, context = {}) {
                     } else {
                         // Validate block_order references valid blocks
                         for (const blockId of section.block_order) {
-                            if (!section.blocks.hasOwnProperty(blockId)) {
+                            if (!Object.prototype.hasOwnProperty.call(section.blocks, blockId)) {
                                 errors.push(`Section "${sectionId}": block_order references unknown block "${blockId}"`);
                             }
                         }
@@ -438,20 +444,20 @@ function validateOutput(output, schemas, context = {}) {
 
                     // Check if block type is allowed in this section
                     if (sectionSchema.allowed_blocks) {
-                        let allowedBlocksList = [];
-                        let blockSchemaDetails = null;
+                        let allowedBlocksList: string[] = [];
+                        let blockSchemaDetails: { _notes?: { text?: string } } | null = null;
 
                         if (Array.isArray(sectionSchema.allowed_blocks)) {
                             // Format: ["block-type-1", "block-type-2"]
                             allowedBlocksList = sectionSchema.allowed_blocks;
-                        } else if (typeof sectionSchema.allowed_blocks === 'object') {
+                        } else if (typeof sectionSchema.allowed_blocks === "object") {
                             // Format: { "block-type-1": {...}, "block-type-2": {...} }
                             allowedBlocksList = Object.keys(sectionSchema.allowed_blocks);
-                            blockSchemaDetails = sectionSchema.allowed_blocks[block.type];
+                            blockSchemaDetails = (sectionSchema.allowed_blocks as Record<string, { _notes?: { text?: string } }>)[block.type];
                         }
 
                         if (allowedBlocksList.length > 0 && !allowedBlocksList.includes(block.type)) {
-                            errors.push(`Block "${blockId}" (type: "${block.type}") is not allowed in section "${sectionId}" — this block type doesn't exist in the real theme's blocks folder for this section and will fail to upload to Shopify. Allowed blocks: ${allowedBlocksList.join(', ')}`);
+                            errors.push(`Block "${blockId}" (type: "${block.type}") is not allowed in section "${sectionId}" — this block type doesn't exist in the real theme's blocks folder for this section and will fail to upload to Shopify. Allowed blocks: ${allowedBlocksList.join(", ")}`);
                         }
 
                         // Check block-level notes
@@ -460,7 +466,7 @@ function validateOutput(output, schemas, context = {}) {
                                 console.log(`📝 Block "${blockId}" (type: "${block.type}") notes:`, blockSchemaDetails._notes);
                             }
                             // Add warnings for richtext fields that need p tag wrapping
-                            if (blockSchemaDetails._notes.text && blockSchemaDetails._notes.text.includes('p tag')) {
+                            if (blockSchemaDetails._notes.text && blockSchemaDetails._notes.text.includes("p tag")) {
                                 warnings.push(`Block "${blockId}": ${blockSchemaDetails._notes.text}`);
                             }
                         }
@@ -470,12 +476,12 @@ function validateOutput(output, schemas, context = {}) {
                         errors.push(`Block "${blockId}": unknown block type "${block.type}" — this block type doesn't exist in any schema and will fail to upload to Shopify`);
                     } else {
                         // Validate image_picker/image settings aren't hallucinated filenames
-                        const blockSchema = blockMap.get(block.type);
+                        const blockSchema = blockMap.get(block.type)!;
                         if (blockSchema.settings && block.settings) {
                             for (const [settingKey, settingType] of Object.entries(blockSchema.settings)) {
-                                if (settingType === 'image_picker' || settingType === 'image') {
+                                if (settingType === "image_picker" || settingType === "image") {
                                     const value = block.settings[settingKey];
-                                    if (value && typeof value === 'string' && !value.startsWith('shopify://') && !/^https?:\/\//.test(value)) {
+                                    if (value && typeof value === "string" && !value.startsWith("shopify://") && !/^https?:\/\//.test(value)) {
                                         errors.push(`Block "${blockId}" (type: "${block.type}"): setting "${settingKey}" has invalid image value "${value}" — image_picker settings must be left as an empty string ("") unless a real Shopify-hosted image URL is available. Do not invent filenames.`);
                                     }
                                 }
@@ -488,7 +494,7 @@ function validateOutput(output, schemas, context = {}) {
 
         // Validate order references valid sections
         for (const sectionId of config.order) {
-            if (!config.sections.hasOwnProperty(sectionId)) {
+            if (!Object.prototype.hasOwnProperty.call(config.sections, sectionId)) {
                 errors.push(`Order references unknown section "${sectionId}"`);
             }
         }
@@ -501,9 +507,9 @@ function validateOutput(output, schemas, context = {}) {
                 warningCount: warnings.length,
                 sectionCount: config.order.length,
                 blockCount: totalBlockCount,
-                error: errors.join('; ')
+                error: errors.join("; ")
             });
-            return { valid: false, error: errors.join('; '), warnings };
+            return { valid: false, error: errors.join("; "), warnings };
         }
 
         instrumentation.logValidation({
@@ -520,16 +526,16 @@ function validateOutput(output, schemas, context = {}) {
             requestId,
             valid: false,
             errorCount: 1,
-            error: error.message
+            error: (error as Error).message
         });
-        return { valid: false, error: error.message };
+        return { valid: false, error: (error as Error).message };
     }
 }
 
 /**
  * Color palettes for different niches/themes
  */
-const COLOR_PALETTES = {
+export const COLOR_PALETTES: Record<string, Record<string, string>> = {
     luxury: {
         colors_accent_1: "#2C1810",
         colors_accent_2: "#8B7355",
@@ -589,12 +595,17 @@ const COLOR_PALETTES = {
 /**
  * Ask AI to suggest custom color palette based on user prompt
  */
-async function generateAIColorPalette(userPrompt, maxRetries = 2, context = {}) {
-    const { requestId = instrumentation.nextRequestId('color'), callType = 'color_palette' } = context;
+export async function generateAIColorPalette(
+    userPrompt: string,
+    maxRetries = 2,
+    context: { requestId?: string; callType?: string } = {}
+): Promise<Record<string, string> | null> {
+    const { requestId = instrumentation.nextRequestId("color"), callType = "color_palette" } = context;
     const startTime = Date.now();
+    void maxRetries; // preserved for signature compatibility; original never used it beyond documentation
 
     if (!OPENROUTER_API_KEY) {
-        if (DEBUG) console.log('⚠️  No OPENROUTER_API_KEY, skipping AI color generation');
+        if (DEBUG) console.log("⚠️  No OPENROUTER_API_KEY, skipping AI color generation");
         return null;
     }
 
@@ -623,23 +634,23 @@ IMPORTANT:
 
         // Use direct fetch instead of makeAIRequest for more control
         const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://github.com/Debutifycorp/EcomSkale',
-                'X-Title': 'Shopify Theme AI Configurator'
+                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/Debutifycorp/EcomSkale",
+                "X-Title": "Shopify Theme AI Configurator"
             },
             body: JSON.stringify({
                 model: OPENROUTER_MODEL,
                 messages: [
                     {
-                        role: 'user',
+                        role: "user",
                         content: colorPrompt
                     }
                 ],
                 temperature: 0.7,
-                response_format: { type: 'json_object' }
+                response_format: { type: "json_object" }
             })
         });
 
@@ -658,37 +669,37 @@ IMPORTANT:
         const content = data.choices?.[0]?.message?.content;
 
         if (!content) {
-            console.warn('⚠️  No content in AI color response');
+            console.warn("⚠️  No content in AI color response");
             instrumentation.logAICall({
                 requestId, callType, model: OPENROUTER_MODEL,
                 promptChars: userPrompt.length, outputChars: 0,
-                durationMs: Date.now() - startTime, success: false, error: 'No content in AI color response'
+                durationMs: Date.now() - startTime, success: false, error: "No content in AI color response"
             });
             return null;
         }
 
         if (DEBUG) {
-            console.log('🔍 Raw AI color response:', content.substring(0, 200));
+            console.log("🔍 Raw AI color response:", content.substring(0, 200));
         }
 
         const colorPalette = JSON.parse(content);
 
         // Validate that we got the required color fields
         if (!colorPalette.colors_accent_1 || !colorPalette.colors_accent_2) {
-            console.warn('⚠️  AI color palette missing required fields, using fallback');
+            console.warn("⚠️  AI color palette missing required fields, using fallback");
             instrumentation.logAICall({
                 requestId, callType, model: OPENROUTER_MODEL,
                 promptChars: userPrompt.length, outputChars: content.length,
-                durationMs: Date.now() - startTime, success: false, error: 'AI color palette missing required fields'
+                durationMs: Date.now() - startTime, success: false, error: "AI color palette missing required fields"
             });
             return null;
         }
 
         if (DEBUG) {
-            console.log(`🎨 AI Generated Color Palette for niche: ${colorPalette.niche || 'custom'}`);
+            console.log(`🎨 AI Generated Color Palette for niche: ${colorPalette.niche || "custom"}`);
             console.log(`   Primary: ${colorPalette.colors_accent_1}`);
             console.log(`   Secondary: ${colorPalette.colors_accent_2}`);
-            console.log(`   Reason: ${colorPalette.description || 'N/A'}`);
+            console.log(`   Reason: ${colorPalette.description || "N/A"}`);
         }
 
         instrumentation.logAICall({
@@ -698,11 +709,11 @@ IMPORTANT:
         });
         return colorPalette;
     } catch (error) {
-        console.warn(`⚠️  AI color generation failed: ${error.message}`);
+        console.warn(`⚠️  AI color generation failed: ${(error as Error).message}`);
         instrumentation.logAICall({
             requestId, callType, model: OPENROUTER_MODEL,
             promptChars: userPrompt.length, outputChars: 0,
-            durationMs: Date.now() - startTime, success: false, error: error.message
+            durationMs: Date.now() - startTime, success: false, error: (error as Error).message
         });
         return null;
     }
@@ -711,16 +722,16 @@ IMPORTANT:
 /**
  * Detect niche and get colors from AI or predefined palettes
  */
-function detectNicheAndGetColors(userPrompt) {
+export function detectNicheAndGetColors(userPrompt: string): { niche: string; colors: Record<string, string> } {
     const prompt = userPrompt.toLowerCase();
 
-    const nicheKeywords = {
-        luxury: ['luxury', 'premium', 'high-end', 'exclusive', 'gold', 'elegant', 'sophisticated'],
-        modern: ['modern', 'minimalist', 'clean', 'professional', 'corporate', 'sleek', 'contemporary'],
-        vibrant: ['vibrant', 'colorful', 'energetic', 'playful', 'bold', 'bright', 'fun', 'dynamic'],
-        nature: ['natural', 'organic', 'eco', 'green', 'sustainable', 'earth', 'outdoor', 'nature'],
-        tech: ['tech', 'technology', 'startup', 'digital', 'innovation', 'software', 'futuristic'],
-        feminine: ['feminine', 'beauty', 'fashion', 'cosmetic', 'women', 'delicate', 'elegant']
+    const nicheKeywords: Record<string, string[]> = {
+        luxury: ["luxury", "premium", "high-end", "exclusive", "gold", "elegant", "sophisticated"],
+        modern: ["modern", "minimalist", "clean", "professional", "corporate", "sleek", "contemporary"],
+        vibrant: ["vibrant", "colorful", "energetic", "playful", "bold", "bright", "fun", "dynamic"],
+        nature: ["natural", "organic", "eco", "green", "sustainable", "earth", "outdoor", "nature"],
+        tech: ["tech", "technology", "startup", "digital", "innovation", "software", "futuristic"],
+        feminine: ["feminine", "beauty", "fashion", "cosmetic", "women", "delicate", "elegant"]
     };
 
     // Find matching niche
@@ -735,26 +746,30 @@ function detectNicheAndGetColors(userPrompt) {
 
     // Default to modern if no match
     if (DEBUG) {
-        console.log(`🎨 No niche detected - Using default modern palette`);
+        console.log("🎨 No niche detected - Using default modern palette");
     }
-    return { niche: 'modern', colors: COLOR_PALETTES.modern };
+    return { niche: "modern", colors: COLOR_PALETTES.modern };
 }
 
 /**
  * Load global settings from global.json and convert to settings_data.json format
  */
-async function loadGlobalSettings(customColors = null) {
-    const globalPath = path.join(__dirname, 'schema-data', 'global.json');
+export async function loadGlobalSettings(customColors: Record<string, string> | null = null): Promise<{
+    current: Record<string, unknown>;
+    presets: Record<string, unknown>;
+    platform_customizations: { custom_css: unknown[] };
+}> {
+    const globalPath = path.join(__dirname, "schema-data", "global.json");
 
     try {
-        const globalData = JSON.parse(await fs.readFile(globalPath, 'utf8'));
+        const globalData = JSON.parse(await fs.readFile(globalPath, "utf8"));
 
-        if (!globalData.settings || typeof globalData.settings !== 'object') {
-            throw new Error('Invalid global.json: missing settings object');
+        if (!globalData.settings || typeof globalData.settings !== "object") {
+            throw new Error("Invalid global.json: missing settings object");
         }
 
         // Use custom colors if provided, otherwise use defaults
-        const presetColors = customColors || {
+        const presetColors: Record<string, string> = customColors || {
             colors_solid_button_labels: "#FDFBF7",
             colors_accent_1: "#9B046F",
             gradient_accent_1: "",
@@ -767,24 +782,25 @@ async function loadGlobalSettings(customColors = null) {
         };
 
         // Build current settings with default values
-        const current = {};
+        const current: Record<string, unknown> = {};
 
-        for (const [key, setting] of Object.entries(globalData.settings)) {
-            if (typeof setting === 'string') {
+        for (const [key, setting] of Object.entries(globalData.settings) as Array<[string, unknown]>) {
+            if (typeof setting === "string") {
                 // Simple type like "color"
-                if (setting === 'color') {
+                if (setting === "color") {
                     // Use preset color if available, otherwise use a sensible default
-                    current[key] = presetColors[key] || '#121212';
+                    current[key] = presetColors[key] || "#121212";
                 } else {
-                    current[key] = '';
+                    current[key] = "";
                 }
-            } else if (setting && typeof setting === 'object' && setting.type === 'range') {
+            } else if (setting && typeof setting === "object" && (setting as { type?: string }).type === "range") {
                 // Range has a default value
-                current[key] = setting.default !== undefined ? setting.default : setting.min;
-            } else if (setting && typeof setting === 'object' && setting.type === 'font_picker') {
-                current[key] = 'assistant_n4';
+                const rangeSetting = setting as { default?: unknown; min?: unknown };
+                current[key] = rangeSetting.default !== undefined ? rangeSetting.default : rangeSetting.min;
+            } else if (setting && typeof setting === "object" && (setting as { type?: string }).type === "font_picker") {
+                current[key] = "assistant_n4";
             } else {
-                current[key] = (setting && setting.default) || '';
+                current[key] = (setting && (setting as { default?: unknown }).default) || "";
             }
         }
 
@@ -812,7 +828,7 @@ async function loadGlobalSettings(customColors = null) {
             platform_customizations
         };
     } catch (error) {
-        console.warn('⚠️  Could not load global.json, using minimal settings:', error.message);
+        console.warn("⚠️  Could not load global.json, using minimal settings:", (error as Error).message);
         return {
             current: {
                 disable_inspect: true,
@@ -824,14 +840,3 @@ async function loadGlobalSettings(customColors = null) {
         };
     }
 }
-
-module.exports = {
-    loadSchemas,
-    buildSystemPrompt,
-    makeAIRequest,
-    validateOutput,
-    loadGlobalSettings,
-    detectNicheAndGetColors,
-    generateAIColorPalette,
-    COLOR_PALETTES
-};

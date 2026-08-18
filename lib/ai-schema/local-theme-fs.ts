@@ -16,16 +16,16 @@
  * theme-specific branching.
  */
 
-const fs = require('fs').promises;
-const path = require('path');
+import fs from "fs/promises";
+import path from "path";
 
-const LOCAL_THEME_ROOT = path.resolve(
-    process.env.LOCAL_THEME_ROOT || path.join(__dirname, '..', '..', '..', 'AI_Schema')
+export const LOCAL_THEME_ROOT = path.resolve(
+    process.env.LOCAL_THEME_ROOT || path.join(__dirname, "..", "..", "..", "AI_Schema")
 );
-const LOCAL_THEME_ID = 'local';
+export const LOCAL_THEME_ID = "local";
 
-function resolveAssetPath(key) {
-    const normalized = key.replace(/\\/g, '/');
+function resolveAssetPath(key: string): string {
+    const normalized = key.replace(/\\/g, "/");
     const resolved = path.resolve(LOCAL_THEME_ROOT, normalized);
     if (resolved !== LOCAL_THEME_ROOT && !resolved.startsWith(LOCAL_THEME_ROOT + path.sep)) {
         throw new Error(`Refusing to resolve theme asset key outside LOCAL_THEME_ROOT: "${key}"`);
@@ -33,25 +33,34 @@ function resolveAssetPath(key) {
     return resolved;
 }
 
-async function getMainThemeId() {
+export async function getMainThemeId(): Promise<string> {
     return LOCAL_THEME_ID;
 }
 
-async function getAsset(shopDomain, accessToken, themeId, key) {
+export async function getAsset(
+    shopDomain: string,
+    accessToken: string,
+    themeId: string,
+    key: string
+): Promise<{ key: string; value: string } | null> {
     try {
-        const value = await fs.readFile(resolveAssetPath(key), 'utf8');
+        const value = await fs.readFile(resolveAssetPath(key), "utf8");
         return { key, value };
     } catch (error) {
-        if (error.code === 'ENOENT') return null;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw error;
     }
 }
 
-async function putAsset(shopDomain, accessToken, themeId, key, value) {
+export async function putAsset(
+    shopDomain: string,
+    accessToken: string,
+    themeId: string,
+    key: string,
+    value: string
+): Promise<{ key: string; value: string }> {
     const filePath = resolveAssetPath(key);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, value, 'utf8');
+    await fs.writeFile(filePath, value, "utf8");
     return { key, value };
 }
-
-module.exports = { LOCAL_THEME_ROOT, LOCAL_THEME_ID, getMainThemeId, getAsset, putAsset };

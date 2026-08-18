@@ -54,40 +54,56 @@
  * ---------------------------------------------------------------------
  */
 
-const instrumentation = require('./instrumentation');
-const { FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE } = require('./retrieval');
+import * as instrumentation from "./instrumentation";
+import { FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE } from "./retrieval";
+import type {
+    GenerationConfig,
+    MergeConflict,
+    MergeResult,
+    MergeSummary,
+    MergeTemplateSummary,
+    TemplateClassification,
+    ThemeState,
+    ValidationResult
+} from "./types";
 
-const MERGE_ERROR_CODES = Object.freeze({
+export const MERGE_ERROR_CODES = Object.freeze({
     // Malformed/insufficient input to even attempt a merge — missing
     // required validation evidence (§8), missing templateName/candidate,
     // or a candidate shape that doesn't match its template's known policy
     // (e.g. more than one section for a forced-exclusive-section template).
-    MERGE_INVALID_TARGET: 'MERGE_INVALID_TARGET',
+    MERGE_INVALID_TARGET: "MERGE_INVALID_TARGET",
     // candidate.order contains the same section id twice — validateOutput()
     // doesn't check this today (duplicate object keys are impossible, but
     // an `order` ARRAY listing the same id twice is not caught upstream);
     // defense in depth, not a duplicate of an existing check (§19).
-    MERGE_DUPLICATE_ID: 'MERGE_DUPLICATE_ID',
+    MERGE_DUPLICATE_ID: "MERGE_DUPLICATE_ID",
     // A forced-exclusive-section template's EXISTING content already has
     // more than one section of the forced type — ambiguous which one the
     // candidate should replace. Fail closed rather than guess (§20).
-    MERGE_SECTION_TYPE_CONFLICT: 'MERGE_SECTION_TYPE_CONFLICT',
+    MERGE_SECTION_TYPE_CONFLICT: "MERGE_SECTION_TYPE_CONFLICT",
     // A full-structure replacement would silently discard one or more
     // existing sections unknown to the AI schema catalog, and the caller
     // hasn't explicitly acknowledged that (see file header).
-    MERGE_UNSAFE_REPLACEMENT: 'MERGE_UNSAFE_REPLACEMENT'
+    MERGE_UNSAFE_REPLACEMENT: "MERGE_UNSAFE_REPLACEMENT"
 });
 
-function conflict(code, path, message) {
+function conflict(code: string, path: string, message: string): MergeConflict {
     return { code, path, message };
 }
 
-function cloneJSON(value) {
+function cloneJSON<T>(value: T): T {
     return value === undefined ? value : JSON.parse(JSON.stringify(value));
 }
 
-function emptyTemplateRaw() {
+function emptyTemplateRaw(): GenerationConfig {
     return { sections: {}, order: [] };
+}
+
+interface TemplateMergeOutcome {
+    conflicts: MergeConflict[];
+    mergedRaw: GenerationConfig | null;
+    summary: MergeTemplateSummary | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,36 +119,36 @@ function emptyTemplateRaw() {
  * fields the candidate actually owns), and the existing order otherwise.
  * Generalizes 2-copy-to-theme.js's mergeProductTemplate() unchanged.
  */
-function mergeForcedExclusiveTemplate(existingRaw, candidate, forcedSectionId) {
-    const conflicts = [];
+export function mergeForcedExclusiveTemplate(existingRaw: GenerationConfig | null, candidate: GenerationConfig, forcedSectionId: string): TemplateMergeOutcome {
+    const conflicts: MergeConflict[] = [];
     const candidateSectionId = candidate.order[0];
     const candidateSection = candidate.sections[candidateSectionId];
 
     if (candidate.order.length !== 1 || !candidateSection || candidateSection.type !== forcedSectionId) {
         conflicts.push(conflict(
             MERGE_ERROR_CODES.MERGE_INVALID_TARGET,
-            'candidate',
+            "candidate",
             `Expected exactly one "${forcedSectionId}" section for this template, got order ${JSON.stringify(candidate.order)}`
         ));
         return { conflicts, mergedRaw: null, summary: null };
     }
 
     const dest = cloneJSON(existingRaw) || emptyTemplateRaw();
-    if (!dest.sections || typeof dest.sections !== 'object') dest.sections = {};
+    if (!dest.sections || typeof dest.sections !== "object") dest.sections = {};
     if (!Array.isArray(dest.order)) dest.order = [];
 
     const matches = Object.entries(dest.sections).filter(([, s]) => s && s.type === forcedSectionId);
     if (matches.length > 1) {
         conflicts.push(conflict(
             MERGE_ERROR_CODES.MERGE_SECTION_TYPE_CONFLICT,
-            `sections`,
+            "sections",
             `Existing template already has ${matches.length} sections of type "${forcedSectionId}" — ambiguous which one to replace.`
         ));
         return { conflicts, mergedRaw: null, summary: null };
     }
 
     const existedBefore = matches.length === 1;
-    const targetKey = existedBefore ? matches[0][0] : 'main';
+    const targetKey = existedBefore ? matches[0][0] : "main";
 
     dest.sections[targetKey] = {
         ...(dest.sections[targetKey] || {}),
@@ -151,7 +167,7 @@ function mergeForcedExclusiveTemplate(existingRaw, candidate, forcedSectionId) {
         dest.order = [targetKey, ...dest.order];
     }
 
-    const summary = {
+    const summary: MergeTemplateSummary = {
         addedSections: existedBefore ? [] : [targetKey],
         updatedSections: existedBefore ? [targetKey] : [],
         removedSections: [],
@@ -170,11 +186,16 @@ function mergeForcedExclusiveTemplate(existingRaw, candidate, forcedSectionId) {
  * clones+replaces the one targeted template entry), not a rule this
  * function has to enforce itself.
  */
-function mergeFullStructureTemplate(existingRaw, candidate, existingClassification, acknowledgeUnknownSectionReplacement) {
-    const conflicts = [];
+export function mergeFullStructureTemplate(
+    existingRaw: GenerationConfig | null,
+    candidate: GenerationConfig,
+    existingClassification: TemplateClassification | null | undefined,
+    acknowledgeUnknownSectionReplacement: boolean
+): TemplateMergeOutcome {
+    const conflicts: MergeConflict[] = [];
 
     if (new Set(candidate.order).size !== candidate.order.length) {
-        conflicts.push(conflict(MERGE_ERROR_CODES.MERGE_DUPLICATE_ID, 'candidate.order', 'candidate.order contains a duplicate section id.'));
+        conflicts.push(conflict(MERGE_ERROR_CODES.MERGE_DUPLICATE_ID, "candidate.order", "candidate.order contains a duplicate section id."));
     }
 
     const existingSections = (existingClassification && existingClassification.sections) || {};
@@ -182,8 +203,8 @@ function mergeFullStructureTemplate(existingRaw, candidate, existingClassificati
     if (unknownExisting.length > 0 && !acknowledgeUnknownSectionReplacement) {
         conflicts.push(conflict(
             MERGE_ERROR_CODES.MERGE_UNSAFE_REPLACEMENT,
-            'template',
-            `This template currently has ${unknownExisting.length} section(s) unknown to the AI schema catalog (${unknownExisting.join(', ')}) that a full-structure replacement would discard. Pass acknowledgeUnknownSectionReplacement: true to proceed anyway.`
+            "template",
+            `This template currently has ${unknownExisting.length} section(s) unknown to the AI schema catalog (${unknownExisting.join(", ")}) that a full-structure replacement would discard. Pass acknowledgeUnknownSectionReplacement: true to proceed anyway.`
         ));
     }
 
@@ -192,14 +213,14 @@ function mergeFullStructureTemplate(existingRaw, candidate, existingClassificati
     const existingSectionIds = new Set(Object.keys((existingRaw && existingRaw.sections) || {}));
     const candidateSectionIds = new Set(candidate.order);
 
-    const summary = {
+    const summary: MergeTemplateSummary = {
         addedSections: [...candidateSectionIds].filter(id => !existingSectionIds.has(id)),
         updatedSections: [...candidateSectionIds].filter(id => existingSectionIds.has(id)),
         removedSections: [...existingSectionIds].filter(id => !candidateSectionIds.has(id)),
         preservedSectionIds: []
     };
 
-    const mergedRaw = { sections: cloneJSON(candidate.sections), order: [...candidate.order] };
+    const mergedRaw: GenerationConfig = { sections: cloneJSON(candidate.sections), order: [...candidate.order] };
     return { conflicts: [], mergedRaw, summary };
 }
 
@@ -212,19 +233,23 @@ function mergeFullStructureTemplate(existingRaw, candidate, existingClassificati
 // global.json's 8 tokens every run).
 // ---------------------------------------------------------------------------
 
-function mergeGlobalSettingsChanges(existingGlobalSettingsRaw, changes) {
-    const base = (existingGlobalSettingsRaw && typeof existingGlobalSettingsRaw === 'object')
+export function mergeGlobalSettingsChanges(
+    existingGlobalSettingsRaw: Record<string, unknown> | null | undefined,
+    changes: Record<string, unknown> | null | undefined
+): { mergedRaw: Record<string, unknown>; changedKeys: string[] } {
+    const base: Record<string, unknown> = (existingGlobalSettingsRaw && typeof existingGlobalSettingsRaw === "object")
         ? cloneJSON(existingGlobalSettingsRaw)
         : { current: {}, presets: {}, platform_customizations: { custom_css: [] } };
 
-    if (!base.current || typeof base.current !== 'object') base.current = {};
+    if (!base.current || typeof base.current !== "object") base.current = {};
 
     if (!changes || Object.keys(changes).length === 0) {
         return { mergedRaw: base, changedKeys: [] };
     }
 
-    const changedKeys = Object.keys(changes).filter(key => base.current[key] !== changes[key]);
-    base.current = { ...base.current, ...changes };
+    const current = base.current as Record<string, unknown>;
+    const changedKeys = Object.keys(changes).filter(key => current[key] !== changes[key]);
+    base.current = { ...current, ...changes };
     return { mergedRaw: base, changedKeys };
 }
 
@@ -234,6 +259,15 @@ function mergeGlobalSettingsChanges(existingGlobalSettingsRaw, changes) {
 // candidates today (one template per pipeline run). Never mutates its
 // inputs (tested); never writes anything (apply.js's job).
 // ---------------------------------------------------------------------------
+
+export interface MergeThemeStateOptions {
+    templateName: string;
+    candidate: GenerationConfig;
+    candidateValidation: ValidationResult;
+    globalSettingsChanges?: Record<string, unknown> | null;
+    acknowledgeUnknownSectionReplacement?: boolean;
+    requestId?: string;
+}
 
 /**
  * options:
@@ -248,18 +282,18 @@ function mergeGlobalSettingsChanges(existingGlobalSettingsRaw, changes) {
  *     into config/settings_data.json's `current` (§14).
  *   - acknowledgeUnknownSectionReplacement: default false (§ file header).
  */
-function mergeThemeState(existingThemeState, options = {}) {
+export function mergeThemeState(existingThemeState: ThemeState, options: Partial<MergeThemeStateOptions> = {}): MergeResult {
     const {
         templateName,
         candidate,
         candidateValidation,
         globalSettingsChanges = null,
         acknowledgeUnknownSectionReplacement = false,
-        requestId = instrumentation.nextRequestId('merge')
+        requestId = instrumentation.nextRequestId("merge")
     } = options;
 
     const startTime = Date.now();
-    function finish(result) {
+    function finish(result: MergeResult): MergeResult {
         instrumentation.logMerge({
             requestId,
             templateName,
@@ -276,16 +310,16 @@ function mergeThemeState(existingThemeState, options = {}) {
         return result;
     }
 
-    if (!templateName || typeof templateName !== 'string') {
-        return finish({ valid: false, conflicts: [conflict(MERGE_ERROR_CODES.MERGE_INVALID_TARGET, 'templateName', 'templateName is required.')], mergedThemeState: null, summary: null });
+    if (!templateName || typeof templateName !== "string") {
+        return finish({ valid: false, conflicts: [conflict(MERGE_ERROR_CODES.MERGE_INVALID_TARGET, "templateName", "templateName is required.")], mergedThemeState: null, summary: null });
     }
-    if (!candidate || typeof candidate !== 'object' || !candidate.sections || !Array.isArray(candidate.order)) {
-        return finish({ valid: false, conflicts: [conflict(MERGE_ERROR_CODES.MERGE_INVALID_TARGET, 'candidate', 'candidate must be a validated {sections, order} object.')], mergedThemeState: null, summary: null });
+    if (!candidate || typeof candidate !== "object" || !candidate.sections || !Array.isArray(candidate.order)) {
+        return finish({ valid: false, conflicts: [conflict(MERGE_ERROR_CODES.MERGE_INVALID_TARGET, "candidate", "candidate must be a validated {sections, order} object.")], mergedThemeState: null, summary: null });
     }
     if (!candidateValidation || candidateValidation.valid !== true) {
         return finish({
             valid: false,
-            conflicts: [conflict(MERGE_ERROR_CODES.MERGE_INVALID_TARGET, 'candidateValidation', 'merge requires evidence that the candidate already passed Phase 6 validateCandidate() — none was provided or it was not valid.')],
+            conflicts: [conflict(MERGE_ERROR_CODES.MERGE_INVALID_TARGET, "candidateValidation", "merge requires evidence that the candidate already passed Phase 6 validateCandidate() — none was provided or it was not valid.")],
             mergedThemeState: null,
             summary: null
         });
@@ -313,6 +347,10 @@ function mergeThemeState(existingThemeState, options = {}) {
     // mutate input"), then replace only the one targeted template entry and
     // globalSettings — every other template/property is untouched by
     // construction, not by a preservation rule this function has to enforce.
+    // `meta` is deliberately NOT carried over here, matching the original
+    // implementation exactly — apply.js re-derives a fresh ThemeState (with
+    // its own meta) from what was actually written, so this in-memory
+    // object was never meant to carry a trustworthy `meta` of its own.
     const mergedThemeState = cloneJSON({
         themeId: existingThemeState.themeId,
         sourcePath: existingThemeState.sourcePath,
@@ -320,35 +358,36 @@ function mergeThemeState(existingThemeState, options = {}) {
         createdAt: existingThemeState.createdAt,
         templates: existingThemeState.templates || {},
         globalSettings: existingThemeState.globalSettings
-    });
+    }) as ThemeState;
 
     mergedThemeState.templates[templateName] = {
         sourceFile: (existingTemplate && existingTemplate.sourceFile) || `templates/${templateName}.json`,
-        raw: mergedRaw
+        raw: mergedRaw!,
         // classification is intentionally NOT recomputed here — apply.js
         // re-derives ThemeState (and therefore classification) from what
         // was actually written, as part of its post-write verification
         // (§28), so this in-memory object is never trusted as the final
         // word on classification.
+        classification: (existingTemplate && existingTemplate.classification) || { sections: {} }
     };
     mergedThemeState.globalSettings = mergedGlobalRaw
-        ? { sourceFile: (existingThemeState.globalSettings && existingThemeState.globalSettings.sourceFile) || 'config/settings_data.json', raw: mergedGlobalRaw }
+        ? { sourceFile: (existingThemeState.globalSettings && existingThemeState.globalSettings.sourceFile) || "config/settings_data.json", raw: mergedGlobalRaw }
         : existingThemeState.globalSettings;
     mergedThemeState.updatedAt = existingThemeState.updatedAt; // stamped by the caller after a real write, not guessed here — this function's own Date.now() usage is instrumentation timing only (finish()), never merge CONTENT
 
     const preservedUnknownComponents = Object.entries(existingClassification.sections || {})
-        .filter(([id, s]) => !s.knownToAI && templateSummary.preservedSectionIds.includes(id))
+        .filter(([id, s]) => !s.knownToAI && templateSummary!.preservedSectionIds.includes(id))
         .map(([id]) => id);
 
-    const summary = {
+    const summary: MergeSummary = {
         changedFiles: [
             `templates/${templateName}.json`,
-            ...(changedKeys.length > 0 ? ['config/settings_data.json'] : [])
+            ...(changedKeys.length > 0 ? ["config/settings_data.json"] : [])
         ],
         changedTemplates: [templateName],
-        addedSections: templateSummary.addedSections,
-        updatedSections: templateSummary.updatedSections,
-        removedSections: templateSummary.removedSections,
+        addedSections: templateSummary!.addedSections,
+        updatedSections: templateSummary!.updatedSections,
+        removedSections: templateSummary!.removedSections,
         changedSettings: changedKeys,
         preservedUnknownComponents
     };
@@ -362,7 +401,7 @@ function mergeThemeState(existingThemeState, options = {}) {
  * internal ThemeState object, so a caller can show "what would change"
  * without ever reaching apply.js.
  */
-function dryRunMerge(existingThemeState, options = {}) {
+export function dryRunMerge(existingThemeState: ThemeState, options: Partial<MergeThemeStateOptions> = {}): { wouldApply: boolean; conflicts: MergeConflict[]; summary: MergeSummary | null } {
     const result = mergeThemeState(existingThemeState, options);
     return {
         wouldApply: result.valid,
@@ -370,12 +409,3 @@ function dryRunMerge(existingThemeState, options = {}) {
         summary: result.summary
     };
 }
-
-module.exports = {
-    MERGE_ERROR_CODES,
-    mergeForcedExclusiveTemplate,
-    mergeFullStructureTemplate,
-    mergeGlobalSettingsChanges,
-    mergeThemeState,
-    dryRunMerge
-};

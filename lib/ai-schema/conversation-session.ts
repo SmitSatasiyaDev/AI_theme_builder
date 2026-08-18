@@ -17,47 +17,48 @@
  * every save/load call downstream can recover the owning store/user.
  */
 
-const crypto = require('crypto');
-const { eq } = require('drizzle-orm');
-const instrumentation = require('./instrumentation');
-const { serializeThemeState } = require('./theme-state');
-const { db } = require('../../db');
-const { conversationSessions } = require('../../db/schema/generation');
+import crypto from "crypto";
+import { eq } from "drizzle-orm";
+import * as instrumentation from "./instrumentation";
+import { serializeThemeState } from "./theme-state";
+import { db } from "@/db";
+import { conversationSessions } from "@/db/schema/generation";
+import type { PendingClarification, Session, TargetResolutionCandidate, ThemeState } from "./types";
 
-const SESSION_STATES = Object.freeze({
-    IDLE: 'IDLE',
-    UNDERSTANDING: 'UNDERSTANDING',
-    NEEDS_CLARIFICATION: 'NEEDS_CLARIFICATION',
-    READY_FOR_OPERATION: 'READY_FOR_OPERATION',
-    APPLYING: 'APPLYING',
-    COMPLETED: 'COMPLETED',
-    FAILED: 'FAILED'
+export const SESSION_STATES = Object.freeze({
+    IDLE: "IDLE",
+    UNDERSTANDING: "UNDERSTANDING",
+    NEEDS_CLARIFICATION: "NEEDS_CLARIFICATION",
+    READY_FOR_OPERATION: "READY_FOR_OPERATION",
+    APPLYING: "APPLYING",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED"
 });
 
-const CANCEL_PHRASES = ['cancel', 'never mind', 'nevermind', 'start over', 'forget it', 'reset', 'nvm'];
+const CANCEL_PHRASES = ["cancel", "never mind", "nevermind", "start over", "forget it", "reset", "nvm"];
 
-function normalize(text) {
-    return (text || '').trim().toLowerCase().replace(/[.!]+$/, '');
+function normalize(text: string | undefined): string {
+    return (text || "").trim().toLowerCase().replace(/[.!]+$/, "");
 }
 
-function isCancelMessage(message) {
+export function isCancelMessage(message: string | undefined): boolean {
     const normalized = normalize(message);
     return CANCEL_PHRASES.includes(normalized);
 }
 
-function computeThemeStateVersion(themeState) {
+export function computeThemeStateVersion(themeState: ThemeState): string {
     const serialized = serializeThemeState(themeState);
-    return crypto.createHash('sha256').update(JSON.stringify(serialized)).digest('hex');
+    return crypto.createHash("sha256").update(JSON.stringify(serialized)).digest("hex");
 }
 
 // --- Session shape, copied verbatim ---------------------------------------
 
-function createSession({ sessionId, themeId } = {}) {
-    const id = sessionId || instrumentation.nextRequestId('session');
+export function createSession({ sessionId, themeId }: { sessionId?: string; themeId?: string } = {}): Session {
+    const id = sessionId || instrumentation.nextRequestId("session");
     const now = new Date().toISOString();
     return {
         sessionId: id,
-        themeId,
+        themeId: themeId!,
         status: SESSION_STATES.IDLE,
         currentIntent: null,
         pendingQuestion: null,
@@ -74,7 +75,7 @@ function createSession({ sessionId, themeId } = {}) {
     };
 }
 
-function resetSession(session) {
+export function resetSession(session: Session): Session {
     return {
         ...session,
         status: SESSION_STATES.IDLE,
@@ -89,12 +90,12 @@ function resetSession(session) {
     };
 }
 
-function tokenize(text) {
-    return (text || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function tokenize(text: string | undefined): string[] {
+    return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-function matchCandidateFromAnswer(candidates, answerText) {
-    const trimmed = (answerText || '').trim();
+export function matchCandidateFromAnswer(candidates: TargetResolutionCandidate[], answerText: string | undefined): TargetResolutionCandidate | null {
+    const trimmed = (answerText || "").trim();
 
     if (/^\d+\.?$/.test(trimmed)) {
         const num = parseInt(trimmed, 10);
@@ -106,9 +107,9 @@ function matchCandidateFromAnswer(candidates, answerText) {
     if (answerTokens.size === 0) return null;
 
     const scored = candidates.map(candidate => {
-        const id = candidate.sectionId || candidate.blockId || '';
-        const idTokens = tokenize(id.replace(/[-_]/g, ' '));
-        const typeTokens = tokenize((candidate.type || '').replace(/[-_]/g, ' '));
+        const id = ("sectionId" in candidate ? candidate.sectionId : candidate.blockId) || "";
+        const idTokens = tokenize(id.replace(/[-_]/g, " "));
+        const typeTokens = tokenize((candidate.type || "").replace(/[-_]/g, " "));
         const candidateTokens = new Set([...idTokens, ...typeTokens]);
         let score = 0;
         for (const token of answerTokens) {
@@ -123,9 +124,9 @@ function matchCandidateFromAnswer(candidates, answerText) {
     return top.length === 1 ? top[0].candidate : null;
 }
 
-function mergeClarificationAnswer(pendingClarification, answerText) {
-    if (!pendingClarification || !Array.isArray(pendingClarification.candidates) || pendingClarification.candidates.length === 0) {
-        return { resolved: false, reason: 'NO_PENDING_CANDIDATES' };
+export function mergeClarificationAnswer(pendingClarification: PendingClarification | null, answerText: string | undefined): { resolved: boolean; reason?: string; match?: TargetResolutionCandidate; kind?: string } {
+    if (!pendingClarification || !("candidates" in pendingClarification) || !Array.isArray(pendingClarification.candidates) || pendingClarification.candidates.length === 0) {
+        return { resolved: false, reason: "NO_PENDING_CANDIDATES" };
     }
     const match = matchCandidateFromAnswer(pendingClarification.candidates, answerText);
     if (!match) return { resolved: false };
@@ -134,24 +135,24 @@ function mergeClarificationAnswer(pendingClarification, answerText) {
 
 // --- Rewritten: sessionId tenant-scoping + Postgres persistence ----------
 
-const SESSION_ID_SEPARATOR = '::';
+const SESSION_ID_SEPARATOR = "::";
 
-function composeSessionId(storeId, userId) {
-    if (!storeId || !userId) throw new Error('composeSessionId() requires storeId and userId');
+export function composeSessionId(storeId: string, userId: string): string {
+    if (!storeId || !userId) throw new Error("composeSessionId() requires storeId and userId");
     return `${storeId}${SESSION_ID_SEPARATOR}${userId}${SESSION_ID_SEPARATOR}${crypto.randomUUID()}`;
 }
 
-function parseSessionId(sessionId) {
-    const parts = (sessionId || '').split(SESSION_ID_SEPARATOR);
+export function parseSessionId(sessionId: string | null | undefined): { storeId: string; userId: string } {
+    const parts = (sessionId || "").split(SESSION_ID_SEPARATOR);
     if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
         throw new Error(`Invalid session id: "${sessionId}" (expected "storeId${SESSION_ID_SEPARATOR}userId${SESSION_ID_SEPARATOR}uuid")`);
     }
     return { storeId: parts[0], userId: parts[1] };
 }
 
-async function saveSession(session) {
+export async function saveSession(session: Session): Promise<Session> {
     const { storeId, userId } = parseSessionId(session.sessionId);
-    const toSave = { ...session, updatedAt: new Date().toISOString() };
+    const toSave: Session = { ...session, updatedAt: new Date().toISOString() };
     await db.insert(conversationSessions)
         .values({
             id: session.sessionId,
@@ -177,25 +178,11 @@ async function saveSession(session) {
     return toSave;
 }
 
-async function loadSession(sessionId) {
+export async function loadSession(sessionId: string): Promise<Session | null> {
     const [row] = await db
         .select()
         .from(conversationSessions)
         .where(eq(conversationSessions.id, sessionId))
         .limit(1);
-    return row ? row.turnsJson : null;
+    return row ? (row.turnsJson as Session) : null;
 }
-
-module.exports = {
-    SESSION_STATES,
-    computeThemeStateVersion,
-    createSession,
-    saveSession,
-    loadSession,
-    resetSession,
-    isCancelMessage,
-    matchCandidateFromAnswer,
-    mergeClarificationAnswer,
-    composeSessionId,
-    parseSessionId
-};

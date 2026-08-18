@@ -26,37 +26,45 @@
  *     again instead of a live Shopify theme.
  */
 
-const { sql, and, eq } = require('drizzle-orm');
-const instrumentation = require('./instrumentation');
-const { loadSchemas } = require('./ai-client');
-const { getAsset } = require('./local-theme-fs');
-const { db } = require('../../db');
-const { themeStates } = require('../../db/schema/generation');
+import { sql, and, eq } from "drizzle-orm";
+import * as instrumentation from "./instrumentation";
+import { loadSchemas } from "./ai-client";
+import { getAsset } from "./local-theme-fs";
+import { db } from "@/db";
+import { themeStates } from "@/db/schema/generation";
+import type {
+    GenerationContext,
+    GenerationConfig,
+    SchemaCatalog,
+    ThemeState,
+    TemplateClassification,
+    ThemeStateValidation
+} from "./types";
 
-const THEME_STATE_SCHEMA_VERSION = 1;
+export const THEME_STATE_SCHEMA_VERSION = 1;
 
 // Kept only so conversational-edit.js's unmodified
 // `const { ..., themeId = DEFAULT_THEME_ID } = options` destructure has
 // something defined to fall back to — every caller in this codebase always
 // passes a real composeThemeStateId()-derived themeId explicitly, so this
 // default is never actually relied on in practice.
-const DEFAULT_THEME_ID = 'default';
+export const DEFAULT_THEME_ID = "default";
 
-const TRACKED_TEMPLATE_KEYS = [
-    { name: 'index', sourceFile: 'templates/index.json' },
-    { name: 'header-group', sourceFile: 'sections/header-group.json' },
-    { name: 'footer-group', sourceFile: 'sections/footer-group.json' }
+export const TRACKED_TEMPLATE_KEYS = [
+    { name: "index", sourceFile: "templates/index.json" },
+    { name: "header-group", sourceFile: "sections/header-group.json" },
+    { name: "footer-group", sourceFile: "sections/footer-group.json" }
 ];
-const SETTINGS_SOURCE_FILE = 'config/settings_data.json';
+const SETTINGS_SOURCE_FILE = "config/settings_data.json";
 
 // --- Pure logic, copied verbatim from the original theme-state.js --------
 
-function classifyTemplate(raw, knownSectionTypes, knownBlockTypes) {
-    const sections = {};
-    if (raw && raw.sections && typeof raw.sections === 'object') {
+export function classifyTemplate(raw: GenerationConfig | null | undefined, knownSectionTypes: Set<string>, knownBlockTypes: Set<string>): TemplateClassification {
+    const sections: TemplateClassification["sections"] = {};
+    if (raw && raw.sections && typeof raw.sections === "object") {
         for (const [sectionId, section] of Object.entries(raw.sections)) {
-            const blocks = {};
-            if (section && section.blocks && typeof section.blocks === 'object') {
+            const blocks: TemplateClassification["sections"][string]["blocks"] = {};
+            if (section && section.blocks && typeof section.blocks === "object") {
                 for (const [blockId, block] of Object.entries(section.blocks)) {
                     blocks[blockId] = {
                         type: block && block.type,
@@ -75,7 +83,7 @@ function classifyTemplate(raw, knownSectionTypes, knownBlockTypes) {
     return { sections };
 }
 
-function summarizeClassification(classification) {
+function summarizeClassification(classification: TemplateClassification) {
     let sectionCount = 0, blockCount = 0, unknownSectionCount = 0, unknownBlockCount = 0;
     for (const section of Object.values(classification.sections)) {
         sectionCount++;
@@ -88,9 +96,9 @@ function summarizeClassification(classification) {
     return { sectionCount, blockCount, unknownSectionCount, unknownBlockCount };
 }
 
-function validateThemeState(themeState) {
-    const errors = [];
-    const warnings = [];
+export function validateThemeState(themeState: ThemeState): ThemeStateValidation {
+    const errors: string[] = [];
+    const warnings: string[] = [];
 
     for (const entry of themeState.meta.unparseableTemplates) {
         errors.push(`Template "${entry.name}" (${entry.sourceFile}): not valid JSON — ${entry.error}`);
@@ -101,11 +109,11 @@ function validateThemeState(themeState) {
 
     for (const [name, template] of Object.entries(themeState.templates)) {
         const raw = template.raw;
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
             errors.push(`Template "${name}": root is not a JSON object`);
             continue;
         }
-        if (!raw.sections || typeof raw.sections !== 'object') {
+        if (!raw.sections || typeof raw.sections !== "object") {
             errors.push(`Template "${name}": missing "sections" object`);
             continue;
         }
@@ -115,7 +123,7 @@ function validateThemeState(themeState) {
         }
 
         for (const sectionId of raw.order) {
-            if (!raw.sections.hasOwnProperty(sectionId)) {
+            if (!Object.prototype.hasOwnProperty.call(raw.sections, sectionId)) {
                 errors.push(`Template "${name}": order references unknown section "${sectionId}"`);
             }
         }
@@ -126,21 +134,21 @@ function validateThemeState(themeState) {
         }
 
         for (const [sectionId, section] of Object.entries(raw.sections)) {
-            if (!section || typeof section !== 'object') {
+            if (!section || typeof section !== "object") {
                 errors.push(`Template "${name}", section "${sectionId}": section is not an object`);
                 continue;
             }
             if (!section.type) {
                 errors.push(`Template "${name}", section "${sectionId}": missing "type"`);
             }
-            if (section.blocks && typeof section.blocks === 'object') {
+            if (section.blocks && typeof section.blocks === "object") {
                 const blockIds = Object.keys(section.blocks);
                 if (blockIds.length > 0) {
                     if (!Array.isArray(section.block_order)) {
                         warnings.push(`Template "${name}", section "${sectionId}": has blocks but no "block_order" array`);
                     } else {
                         for (const blockId of section.block_order) {
-                            if (!section.blocks.hasOwnProperty(blockId)) {
+                            if (!Object.prototype.hasOwnProperty.call(section.blocks, blockId)) {
                                 errors.push(`Template "${name}", section "${sectionId}": block_order references unknown block "${blockId}"`);
                             }
                         }
@@ -158,8 +166,8 @@ function validateThemeState(themeState) {
     return { valid: errors.length === 0, errors, warnings };
 }
 
-function serializeThemeState(themeState) {
-    const templates = {};
+export function serializeThemeState(themeState: ThemeState): { templates: Record<string, GenerationConfig>; globalSettings: unknown } {
+    const templates: Record<string, GenerationConfig> = {};
     for (const [name, template] of Object.entries(themeState.templates)) {
         templates[name] = template.raw;
     }
@@ -169,7 +177,7 @@ function serializeThemeState(themeState) {
     };
 }
 
-function selectGenerationContext(themeState, templateName) {
+export function selectGenerationContext(themeState: ThemeState, templateName: string): GenerationContext {
     const template = themeState.templates[templateName] || null;
     const existingSections = template
         ? Object.entries(template.classification.sections).map(([id, section]) => ({
@@ -194,6 +202,14 @@ function selectGenerationContext(themeState, templateName) {
 
 // --- Rewritten: Shopify Admin API read + Postgres persistence ------------
 
+export interface BuildThemeStateOptions {
+    shopDomain: string;
+    accessToken: string;
+    themeId: string;
+    schemas?: SchemaCatalog | null;
+    context?: { requestId?: string };
+}
+
 /**
  * options (all required except schemas/context):
  *   - shopDomain, accessToken, themeId: identify which live Shopify theme
@@ -201,31 +217,31 @@ function selectGenerationContext(themeState, templateName) {
  *   - schemas: pre-loaded { sectionSchemas, blockSchemas } to classify
  *     against; defaults to the full AI schema catalog.
  */
-async function buildThemeState(options = {}) {
+export async function buildThemeState(options: BuildThemeStateOptions): Promise<ThemeState> {
     const { shopDomain, accessToken, themeId, schemas = null, context = {} } = options;
     if (!shopDomain || !accessToken || !themeId) {
-        throw new Error('buildThemeState() requires { shopDomain, accessToken, themeId }');
+        throw new Error("buildThemeState() requires { shopDomain, accessToken, themeId }");
     }
 
-    const requestId = context.requestId || instrumentation.nextRequestId('themestate');
+    const requestId = context.requestId || instrumentation.nextRequestId("themestate");
     const startTime = Date.now();
 
     const resolvedSchemas = schemas || await loadSchemas();
     const knownSectionTypes = new Set(resolvedSchemas.sectionSchemas.map(s => s.id));
     const knownBlockTypes = new Set(resolvedSchemas.blockSchemas.map(b => b.id));
 
-    const templates = {};
-    const unparseableTemplates = [];
+    const templates: ThemeState["templates"] = {};
+    const unparseableTemplates: ThemeState["meta"]["unparseableTemplates"] = [];
 
     for (const { name, sourceFile } of TRACKED_TEMPLATE_KEYS) {
         const asset = await getAsset(shopDomain, accessToken, themeId, sourceFile);
         if (!asset) continue; // not present on this theme — same as ENOENT in the original
 
-        let parsed;
+        let parsed: GenerationConfig;
         try {
             parsed = JSON.parse(asset.value);
         } catch (error) {
-            unparseableTemplates.push({ name, sourceFile, error: error.message });
+            unparseableTemplates.push({ name, sourceFile, error: (error as Error).message });
             continue;
         }
         templates[name] = {
@@ -236,13 +252,13 @@ async function buildThemeState(options = {}) {
     }
 
     const settingsAsset = await getAsset(shopDomain, accessToken, themeId, SETTINGS_SOURCE_FILE);
-    let globalSettings = null;
-    let globalSettingsError = null;
+    let globalSettings: ThemeState["globalSettings"] = null;
+    let globalSettingsError: string | null = null;
     if (settingsAsset) {
         try {
             globalSettings = { sourceFile: SETTINGS_SOURCE_FILE, raw: JSON.parse(settingsAsset.value) };
         } catch (error) {
-            globalSettingsError = error.message;
+            globalSettingsError = (error as Error).message;
         }
     }
 
@@ -256,7 +272,7 @@ async function buildThemeState(options = {}) {
     }
 
     const now = new Date().toISOString();
-    const themeState = {
+    const themeState: ThemeState = {
         themeId,
         schemaVersion: THEME_STATE_SCHEMA_VERSION,
         createdAt: now,
@@ -296,8 +312,8 @@ async function buildThemeState(options = {}) {
     return themeState;
 }
 
-async function saveThemeStateForStore(storeId, themeId, themeState) {
-    if (!storeId || !themeId) throw new Error('saveThemeStateForStore() requires storeId and themeId');
+export async function saveThemeStateForStore(storeId: string, themeId: string, themeState: ThemeState): Promise<void> {
+    if (!storeId || !themeId) throw new Error("saveThemeStateForStore() requires storeId and themeId");
     await db.insert(themeStates)
         .values({ storeId, themeId, snapshotJson: themeState, version: 1 })
         .onConflictDoUpdate({
@@ -310,14 +326,14 @@ async function saveThemeStateForStore(storeId, themeId, themeState) {
         });
 }
 
-async function loadThemeStateForStore(storeId, themeId) {
-    if (!storeId || !themeId) throw new Error('loadThemeStateForStore() requires storeId and themeId');
+export async function loadThemeStateForStore(storeId: string, themeId: string): Promise<ThemeState | null> {
+    if (!storeId || !themeId) throw new Error("loadThemeStateForStore() requires storeId and themeId");
     const [row] = await db
         .select()
         .from(themeStates)
         .where(and(eq(themeStates.storeId, storeId), eq(themeStates.themeId, themeId)))
         .limit(1);
-    return row ? row.snapshotJson : null;
+    return row ? (row.snapshotJson as ThemeState) : null;
 }
 
 // --- Single-argument compatibility layer for edit-pipeline.js/conversational-edit.js ---
@@ -333,44 +349,27 @@ async function loadThemeStateForStore(storeId, themeId) {
 // tenant-scoped. Callers that build a ThemeState directly (worker.ts) use
 // saveThemeStateForStore/loadThemeStateForStore above instead, which are
 // explicit and don't need this encoding.
-const THEME_STATE_ID_SEPARATOR = '::';
+const THEME_STATE_ID_SEPARATOR = "::";
 
-function composeThemeStateId(storeId, themeId) {
-    if (!storeId || !themeId) throw new Error('composeThemeStateId() requires storeId and themeId');
+export function composeThemeStateId(storeId: string, themeId: string): string {
+    if (!storeId || !themeId) throw new Error("composeThemeStateId() requires storeId and themeId");
     return `${storeId}${THEME_STATE_ID_SEPARATOR}${themeId}`;
 }
 
-function parseThemeStateId(compositeId) {
-    const parts = (compositeId || '').split(THEME_STATE_ID_SEPARATOR);
+export function parseThemeStateId(compositeId: string | null | undefined): { storeId: string; themeId: string } {
+    const parts = (compositeId || "").split(THEME_STATE_ID_SEPARATOR);
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
         throw new Error(`Invalid composite theme state id: "${compositeId}" (expected "storeId${THEME_STATE_ID_SEPARATOR}themeId")`);
     }
     return { storeId: parts[0], themeId: parts[1] };
 }
 
-async function saveThemeState(themeState) {
+export async function saveThemeState(themeState: ThemeState): Promise<void> {
     const { storeId, themeId } = parseThemeStateId(themeState.themeId);
     await saveThemeStateForStore(storeId, themeId, themeState);
 }
 
-async function loadThemeState(compositeThemeId) {
+export async function loadThemeState(compositeThemeId: string): Promise<ThemeState | null> {
     const { storeId, themeId } = parseThemeStateId(compositeThemeId);
     return loadThemeStateForStore(storeId, themeId);
 }
-
-module.exports = {
-    THEME_STATE_SCHEMA_VERSION,
-    DEFAULT_THEME_ID,
-    TRACKED_TEMPLATE_KEYS,
-    buildThemeState,
-    serializeThemeState,
-    validateThemeState,
-    saveThemeStateForStore,
-    loadThemeStateForStore,
-    composeThemeStateId,
-    parseThemeStateId,
-    saveThemeState,
-    loadThemeState,
-    selectGenerationContext,
-    classifyTemplate
-};

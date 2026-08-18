@@ -30,38 +30,40 @@
  * by the caller.
  */
 
-const BRIEF_FIELDS = [
-    'businessType',
-    'niche',
-    'brandName',
-    'targetAudience',
-    'products',
-    'brandPersonality',
-    'visualDirection',
-    'colorDirection',
-    'contentTone',
-    'requiredPages',
-    'homepageGoals',
-    'conversionGoals',
-    'contentRequirements',
-    'additionalRequirements'
+import type { Brief, BriefField, BriefFieldStatus } from "./types";
+
+export const BRIEF_FIELDS = [
+    "businessType",
+    "niche",
+    "brandName",
+    "targetAudience",
+    "products",
+    "brandPersonality",
+    "visualDirection",
+    "colorDirection",
+    "contentTone",
+    "requiredPages",
+    "homepageGoals",
+    "conversionGoals",
+    "contentRequirements",
+    "additionalRequirements"
 ];
 
-const BLOCKING_FIELD_KEYS = ['businessType'];
+export const BLOCKING_FIELD_KEYS = ["businessType"];
 
-const VALID_STATUSES = new Set(['confirmed', 'inferred', 'missing']);
+const VALID_STATUSES = new Set<BriefFieldStatus>(["confirmed", "inferred", "missing"]);
 
-function createEmptyBrief() {
-    const brief = {};
+export function createEmptyBrief(): Brief {
+    const brief: Brief = {};
     for (const key of BRIEF_FIELDS) {
-        brief[key] = { value: null, status: 'missing', source: null };
+        brief[key] = { value: null, status: "missing", source: null };
     }
     return brief;
 }
 
-function isFieldPresent(field) {
+export function isFieldPresent(field: BriefField | undefined): boolean {
     return !!field && field.value !== null && field.value !== undefined &&
-        field.value !== '' && field.status !== 'missing';
+        field.value !== "" && field.status !== "missing";
 }
 
 /**
@@ -71,17 +73,17 @@ function isFieldPresent(field) {
  * never letting an empty/missing incoming value erase a value already
  * known from a previous turn (Phase 3 spec: "must not restart from zero").
  */
-function mergeField(existing, incoming) {
-    if (!incoming || incoming.value === null || incoming.value === undefined || incoming.value === '') {
-        return existing;
+export function mergeField(existing: BriefField | undefined, incoming: Partial<BriefField> | undefined): BriefField {
+    if (!incoming || incoming.value === null || incoming.value === undefined || incoming.value === "") {
+        return existing ?? { value: null, status: "missing", source: null };
     }
-    if (existing && existing.status === 'confirmed' && incoming.status !== 'confirmed') {
+    if (existing && existing.status === "confirmed" && incoming.status !== "confirmed") {
         return existing;
     }
     return {
         value: incoming.value,
-        status: VALID_STATUSES.has(incoming.status) ? incoming.status : 'inferred',
-        source: incoming.source || (incoming.status === 'confirmed' ? 'user' : 'ai_inference')
+        status: incoming.status && VALID_STATUSES.has(incoming.status) ? incoming.status : "inferred",
+        source: incoming.source || (incoming.status === "confirmed" ? "user" : "ai_inference")
     };
 }
 
@@ -90,20 +92,20 @@ function mergeField(existing, incoming) {
  * call) into an existing brief, field by field. Unknown keys in `partial`
  * are ignored (defensive — the AI call is a schema, not a free field bag).
  */
-function mergeBrief(existingBrief, partial) {
+export function mergeBrief(existingBrief: Brief | null | undefined, partial: Partial<Brief> | null | undefined): Brief {
     const base = existingBrief ? { ...existingBrief } : createEmptyBrief();
-    const merged = {};
+    const merged: Brief = {};
     for (const key of BRIEF_FIELDS) {
         merged[key] = mergeField(base[key], partial ? partial[key] : undefined);
     }
     return merged;
 }
 
-function missingBlockingFields(brief) {
+export function missingBlockingFields(brief: Brief): string[] {
     return BLOCKING_FIELD_KEYS.filter(key => !isFieldPresent(brief[key]));
 }
 
-function isReady(brief) {
+export function isReady(brief: Brief): boolean {
     return missingBlockingFields(brief).length === 0;
 }
 
@@ -112,14 +114,16 @@ function isReady(brief) {
  * a well-formed { value, status, source } shape. Used by clarification.js
  * to reject a malformed AI-extracted brief before it's trusted.
  */
-function isValidBriefShape(brief) {
-    if (!brief || typeof brief !== 'object' || Array.isArray(brief)) return false;
+export function isValidBriefShape(brief: unknown): brief is Brief {
+    if (!brief || typeof brief !== "object" || Array.isArray(brief)) return false;
+    const record = brief as Record<string, unknown>;
     for (const key of BRIEF_FIELDS) {
-        const field = brief[key];
-        if (!field || typeof field !== 'object' || Array.isArray(field)) return false;
-        if (!('value' in field) || !('status' in field)) return false;
-        if (!VALID_STATUSES.has(field.status)) return false;
-        if (field.status === 'missing' && field.value !== null && field.value !== undefined && field.value !== '') {
+        const field = record[key];
+        if (!field || typeof field !== "object" || Array.isArray(field)) return false;
+        const f = field as Record<string, unknown>;
+        if (!("value" in f) || !("status" in f)) return false;
+        if (!VALID_STATUSES.has(f.status as BriefFieldStatus)) return false;
+        if (f.status === "missing" && f.value !== null && f.value !== undefined && f.value !== "") {
             return false; // contradictory: claims missing but carries a value
         }
     }
@@ -132,27 +136,14 @@ function isValidBriefShape(brief) {
  * fields that actually carry a value are included (isFieldPresent), so an
  * empty/missing optional field never shows up as literal "null" text.
  */
-function briefToSummaryText(brief) {
-    const parts = [];
+export function briefToSummaryText(brief: Brief): string {
+    const parts: string[] = [];
     for (const key of BRIEF_FIELDS) {
         const field = brief[key];
         if (isFieldPresent(field)) {
-            const value = Array.isArray(field.value) ? field.value.join(', ') : field.value;
+            const value = Array.isArray(field.value) ? field.value.join(", ") : field.value;
             parts.push(`${key}: ${value}`);
         }
     }
-    return parts.join('; ');
+    return parts.join("; ");
 }
-
-module.exports = {
-    BRIEF_FIELDS,
-    BLOCKING_FIELD_KEYS,
-    createEmptyBrief,
-    mergeField,
-    mergeBrief,
-    missingBlockingFields,
-    isReady,
-    isValidBriefShape,
-    isFieldPresent,
-    briefToSummaryText
-};

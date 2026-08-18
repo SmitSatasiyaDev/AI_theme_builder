@@ -37,15 +37,28 @@
  * (see AI_THEME_BUILDER_PHASE5_PLAN.md §33/§40).
  */
 
-const instrumentation = require('./instrumentation');
-const { buildCapabilityIndex } = require('./capability-index');
-const { getTemplateEligibleSchemas, FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE, isEligibleForTemplate } = require('./retrieval');
-const { makeAIRequest, validateOutput } = require('./ai-client');
-const { briefToSummaryText } = require('./brief-logic');
-const { selectGenerationContext } = require('./theme-state');
-const { validateCandidate } = require('./validation');
+import * as instrumentation from "./instrumentation";
+import { buildCapabilityIndex } from "./capability-index";
+import { getTemplateEligibleSchemas, FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE, isEligibleForTemplate } from "./retrieval";
+import { makeAIRequest, validateOutput } from "./ai-client";
+import { briefToSummaryText } from "./brief-logic";
+import { selectGenerationContext } from "./theme-state";
+import { validateCandidate } from "./validation";
+import type {
+    Brief,
+    CapabilityListing,
+    GenerationConfig,
+    GenerationContext,
+    GenerationPlan,
+    PlainValidationResult,
+    RetrievedSchemaCatalog,
+    SchemaCatalog,
+    SectionSchema,
+    StagedGenerationResult,
+    ThemeState
+} from "./types";
 
-const MAX_PLAN_SECTIONS = 10; // same homepage ceiling validateOutput() already enforces for the legacy path
+export const MAX_PLAN_SECTIONS = 10; // same homepage ceiling validateOutput() already enforces for the legacy path
 
 // ---------------------------------------------------------------------------
 // Lightweight capability listing for the planning prompt (no full settings
@@ -59,15 +72,15 @@ const MAX_PLAN_SECTIONS = 10; // same homepage ceiling validateOutput() already 
 // planning prompt's constraint can never drift from what's actually
 // enforced. allowed_blocks is schema data, either an array of ids or an
 // object keyed by id (both forms occur in the schema catalog).
-function getAllowedBlockIds(sectionSchema) {
+function getAllowedBlockIds(sectionSchema: Partial<SectionSchema>): string[] {
     return Array.isArray(sectionSchema.allowed_blocks)
         ? sectionSchema.allowed_blocks
-        : (sectionSchema.allowed_blocks && typeof sectionSchema.allowed_blocks === 'object'
+        : (sectionSchema.allowed_blocks && typeof sectionSchema.allowed_blocks === "object"
             ? Object.keys(sectionSchema.allowed_blocks)
             : []);
 }
 
-function lightweightCapabilityListing(retrievedSchemas) {
+export function lightweightCapabilityListing(retrievedSchemas: SchemaCatalog): CapabilityListing {
     const index = buildCapabilityIndex(retrievedSchemas);
     const sectionSchemaById = new Map(retrievedSchemas.sectionSchemas.map(s => [s.id, s]));
     return {
@@ -91,7 +104,7 @@ function lightweightCapabilityListing(retrievedSchemas) {
 // Stage 1 — Planning
 // ---------------------------------------------------------------------------
 
-function buildPlanningSystemPrompt(templateName, capabilityListing, themeContext) {
+export function buildPlanningSystemPrompt(templateName: string, capabilityListing: CapabilityListing, themeContext: GenerationContext): string {
     const forcedSectionId = FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE[templateName];
 
     let rules = `You are a Shopify theme STRUCTURE planner. Your only job is to decide WHICH existing sections and blocks to use and in what order — you do NOT write any settings, text, or content yet (that happens in a later step).
@@ -127,10 +140,10 @@ CRITICAL RULES:
     return rules;
 }
 
-function buildPlanningUserPrompt(brief, templateName, repairErrors) {
+export function buildPlanningUserPrompt(brief: Brief, templateName: string, repairErrors: string[] | null): string {
     let prompt = `Merchant requirements:\n${briefToSummaryText(brief)}\n\nTarget template: ${templateName}\n\nProduce the GenerationPlan JSON now.`;
     if (repairErrors && repairErrors.length > 0) {
-        prompt += `\n\nYour previous plan was invalid for these reasons: ${repairErrors.join('; ')}. Fix these issues and respond again with ONLY the corrected JSON object.`;
+        prompt += `\n\nYour previous plan was invalid for these reasons: ${repairErrors.join("; ")}. Fix these issues and respond again with ONLY the corrected JSON object.`;
     }
     return prompt;
 }
@@ -140,50 +153,53 @@ function buildPlanningUserPrompt(brief, templateName, repairErrors) {
  * candidate set (never the full catalog — §12: "constrained to
  * capabilities that actually exist in the SELECTED schema set").
  */
-function validateGenerationPlan(plan, retrievedSchemas, templateName) {
-    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
-        return { valid: false, errors: ['plan is not a JSON object'] };
+export function validateGenerationPlan(plan: unknown, retrievedSchemas: SchemaCatalog, templateName: string): PlainValidationResult {
+    if (!plan || typeof plan !== "object" || Array.isArray(plan)) {
+        return { valid: false, errors: ["plan is not a JSON object"] };
     }
 
-    const errors = [];
-    if (plan.templateName !== templateName) {
-        errors.push(`plan.templateName "${plan.templateName}" does not match the requested template "${templateName}"`);
+    const p = plan as Partial<GenerationPlan>;
+    const errors: string[] = [];
+    if (p.templateName !== templateName) {
+        errors.push(`plan.templateName "${p.templateName}" does not match the requested template "${templateName}"`);
     }
-    if (!plan.sections || typeof plan.sections !== 'object' || Array.isArray(plan.sections)) {
-        errors.push('plan.sections must be an object');
+    if (!p.sections || typeof p.sections !== "object" || Array.isArray(p.sections)) {
+        errors.push("plan.sections must be an object");
     }
-    if (!Array.isArray(plan.order)) {
-        errors.push('plan.order must be an array');
+    if (!Array.isArray(p.order)) {
+        errors.push("plan.order must be an array");
     }
     if (errors.length > 0) return { valid: false, errors };
 
-    const sectionIds = Object.keys(plan.sections);
+    const sections = p.sections!;
+    const order = p.order!;
+    const sectionIds = Object.keys(sections);
     if (sectionIds.length === 0) {
-        errors.push('plan.sections must not be empty');
+        errors.push("plan.sections must not be empty");
     }
-    if (plan.order.length > MAX_PLAN_SECTIONS) {
-        errors.push(`plan.order has ${plan.order.length} sections, maximum ${MAX_PLAN_SECTIONS} allowed`);
+    if (order.length > MAX_PLAN_SECTIONS) {
+        errors.push(`plan.order has ${order.length} sections, maximum ${MAX_PLAN_SECTIONS} allowed`);
     }
-    if (new Set(plan.order).size !== plan.order.length) {
-        errors.push('plan.order contains duplicate section ids');
+    if (new Set(order).size !== order.length) {
+        errors.push("plan.order contains duplicate section ids");
     }
-    for (const id of plan.order) {
-        if (!plan.sections.hasOwnProperty(id)) errors.push(`plan.order references unknown section id "${id}"`);
+    for (const id of order) {
+        if (!Object.prototype.hasOwnProperty.call(sections, id)) errors.push(`plan.order references unknown section id "${id}"`);
     }
     for (const id of sectionIds) {
-        if (!plan.order.includes(id)) errors.push(`plan.sections["${id}"] is not listed in plan.order`);
+        if (!order.includes(id)) errors.push(`plan.sections["${id}"] is not listed in plan.order`);
     }
 
     const sectionById = new Map(retrievedSchemas.sectionSchemas.map(s => [s.id, s]));
     const blockById = new Map(retrievedSchemas.blockSchemas.map(b => [b.id, b]));
 
     const forcedSectionId = FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE[templateName];
-    if (forcedSectionId && (sectionIds.length !== 1 || plan.sections[sectionIds[0]].type !== forcedSectionId)) {
+    if (forcedSectionId && (sectionIds.length !== 1 || sections[sectionIds[0]].type !== forcedSectionId)) {
         errors.push(`template "${templateName}" must use exactly one section of type "${forcedSectionId}"`);
     }
 
-    for (const [id, section] of Object.entries(plan.sections)) {
-        if (!section || typeof section !== 'object') {
+    for (const [id, section] of Object.entries(sections)) {
+        if (!section || typeof section !== "object") {
             errors.push(`plan.sections["${id}"] must be an object`);
             continue;
         }
@@ -191,7 +207,7 @@ function validateGenerationPlan(plan, retrievedSchemas, templateName) {
             errors.push(`plan.sections["${id}"].type "${section.type}" is not part of the retrieved/relevant capabilities for this request`);
             continue;
         }
-        const sectionSchema = sectionById.get(section.type);
+        const sectionSchema = sectionById.get(section.type)!;
 
         // Phase 6 (§7/§18): closes a real gap — a FULL_FALLBACK retrieval
         // pool (retrieval.js) is the FULL unfiltered schema catalog, not
@@ -223,46 +239,54 @@ function validateGenerationPlan(plan, retrievedSchemas, templateName) {
     return { valid: errors.length === 0, errors };
 }
 
+interface RunPlanningStageOptions {
+    brief: Brief;
+    templateName: string;
+    retrievedSchemas: RetrievedSchemaCatalog;
+    themeContext: GenerationContext;
+    requestId: string;
+}
+
 /**
  * Runs Stage 1 to completion: one AI call, validated; a single bounded
  * repair retry if invalid; throws (does not continue to Stage 2) if the
  * repair attempt is also invalid — §21.
  */
-async function runPlanningStage({ brief, templateName, retrievedSchemas, themeContext, requestId }) {
+export async function runPlanningStage({ brief, templateName, retrievedSchemas, themeContext, requestId }: RunPlanningStageOptions): Promise<{ plan: GenerationPlan; repaired: boolean; capabilityListing: CapabilityListing }> {
     const capabilityListing = lightweightCapabilityListing(retrievedSchemas);
     const systemPrompt = buildPlanningSystemPrompt(templateName, capabilityListing, themeContext);
 
-    function parseAndValidate(content) {
-        let plan;
+    function parseAndValidate(content: string | undefined): { plan: GenerationPlan | null; validation: PlainValidationResult } {
+        let plan: GenerationPlan;
         try {
-            plan = JSON.parse(content);
+            plan = JSON.parse(content!);
         } catch (error) {
-            return { plan: null, validation: { valid: false, errors: [`plan was not valid JSON: ${error.message}`] } };
+            return { plan: null, validation: { valid: false, errors: [`plan was not valid JSON: ${(error as Error).message}`] } };
         }
         return { plan, validation: validateGenerationPlan(plan, retrievedSchemas, templateName) };
     }
 
-    const firstContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, null), systemPrompt, 2, { requestId, callType: 'generation_plan' });
+    const firstContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, null), systemPrompt, 2, { requestId, callType: "generation_plan" });
     let { plan, validation } = parseAndValidate(firstContent);
     let repaired = false;
 
     if (!validation.valid) {
         repaired = true;
-        const repairContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, validation.errors), systemPrompt, 2, { requestId, callType: 'generation_plan_repair' });
+        const repairContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, validation.errors), systemPrompt, 2, { requestId, callType: "generation_plan_repair" });
         ({ plan, validation } = parseAndValidate(repairContent));
         if (!validation.valid) {
-            throw new Error(`Stage 1 (planning) produced an invalid GenerationPlan even after a repair attempt: ${validation.errors.join('; ')}`);
+            throw new Error(`Stage 1 (planning) produced an invalid GenerationPlan even after a repair attempt: ${validation.errors.join("; ")}`);
         }
     }
 
-    return { plan, repaired, capabilityListing };
+    return { plan: plan!, repaired, capabilityListing };
 }
 
 // ---------------------------------------------------------------------------
 // Stage 2 — Configuration
 // ---------------------------------------------------------------------------
 
-function buildConfigurationSystemPrompt(plan, retrievedSchemas) {
+export function buildConfigurationSystemPrompt(plan: GenerationPlan, retrievedSchemas: SchemaCatalog): string {
     const usedSectionTypes = new Set(Object.values(plan.sections).map(s => s.type));
     const usedBlockTypes = new Set(Object.values(plan.sections).flatMap(s => Array.isArray(s.blockTypes) ? s.blockTypes : []));
     const scopedSectionSchemas = retrievedSchemas.sectionSchemas.filter(s => usedSectionTypes.has(s.id));
@@ -270,9 +294,9 @@ function buildConfigurationSystemPrompt(plan, retrievedSchemas) {
 
     const structureList = plan.order.map(id => {
         const s = plan.sections[id];
-        const blocksNote = (s.blockTypes && s.blockTypes.length) ? `, blocks: [${s.blockTypes.join(', ')}]` : '';
+        const blocksNote = (s.blockTypes && s.blockTypes.length) ? `, blocks: [${s.blockTypes.join(", ")}]` : "";
         return `  - "${id}": type "${s.type}"${blocksNote}`;
-    }).join('\n');
+    }).join("\n");
 
     return `You are an AI Shopify theme configurator. A structure plan has ALREADY been approved — your only job now is to fill in settings and content for EXACTLY that structure. Do not add, remove, reorder, or retype any section or block.
 
@@ -313,23 +337,23 @@ OUTPUT FORMAT:
 }`;
 }
 
-function buildConfigurationUserPrompt(brief, plan, themeContext, repairErrors) {
+export function buildConfigurationUserPrompt(brief: Brief, plan: GenerationPlan, themeContext: GenerationContext, repairErrors: string[] | null): string {
     let prompt = `Merchant requirements:\n${briefToSummaryText(brief)}\n\nGenerate the settings/content for the approved structure now.`;
 
     const colorKeys = Object.entries(themeContext.globalSettingsCurrent || {})
-        .filter(([key]) => key.startsWith('colors_') || key.startsWith('gradient_'));
+        .filter(([key]) => key.startsWith("colors_") || key.startsWith("gradient_"));
     if (colorKeys.length > 0) {
         prompt += `\n\nThe theme's current global colors (context only — do not output global settings yourself, only section/block content): ${JSON.stringify(Object.fromEntries(colorKeys))}.`;
     }
 
     if (repairErrors && repairErrors.length > 0) {
-        prompt += `\n\nYour previous response was invalid for these reasons: ${repairErrors.join('; ')}. Fix these issues and respond again with ONLY the corrected JSON object.`;
+        prompt += `\n\nYour previous response was invalid for these reasons: ${repairErrors.join("; ")}. Fix these issues and respond again with ONLY the corrected JSON object.`;
     }
     return prompt;
 }
 
-function countBy(arr) {
-    const map = new Map();
+function countBy(arr: string[]): Map<string, number> {
+    const map = new Map<string, number>();
     for (const x of arr) map.set(x, (map.get(x) || 0) + 1);
     return map;
 }
@@ -340,8 +364,8 @@ function countBy(arr) {
  * catch this, since a *different but still valid* structure would still
  * pass generic schema validation.
  */
-function matchesPlan(config, plan) {
-    const errors = [];
+export function matchesPlan(config: GenerationConfig, plan: GenerationPlan): PlainValidationResult {
+    const errors: string[] = [];
     if (JSON.stringify(config.order) !== JSON.stringify(plan.order)) {
         errors.push(`configuration order ${JSON.stringify(config.order)} does not match the approved plan order ${JSON.stringify(plan.order)}`);
     }
@@ -371,30 +395,38 @@ function matchesPlan(config, plan) {
     return { valid: errors.length === 0, errors };
 }
 
+interface RunConfigurationStageOptions {
+    brief: Brief;
+    plan: GenerationPlan;
+    retrievedSchemas: RetrievedSchemaCatalog;
+    themeContext: GenerationContext;
+    requestId: string;
+}
+
 /**
  * Runs Stage 2 to completion against an ALREADY-VALID plan: one AI call,
  * validated via the existing (unmodified) validateOutput() plus
  * matchesPlan(); a single bounded repair retry if invalid; throws if the
  * repair attempt is also invalid — §21.
  */
-async function runConfigurationStage({ brief, plan, retrievedSchemas, themeContext, requestId }) {
+export async function runConfigurationStage({ brief, plan, retrievedSchemas, themeContext, requestId }: RunConfigurationStageOptions): Promise<{ config: GenerationConfig | null; warnings: string[]; repaired: boolean }> {
     const systemPrompt = buildConfigurationSystemPrompt(plan, retrievedSchemas);
 
-    function validate(aiOutput, repairAttempt) {
+    function validate(aiOutput: string, repairAttempt: number): { config: GenerationConfig | null; warnings: string[]; valid: boolean; errors: string[] } {
         const startTime = Date.now();
         const outputValidation = validateOutput(aiOutput, retrievedSchemas, { requestId });
         if (!outputValidation.valid) {
             instrumentation.logCandidateValidation({
-                requestId, stage: 'staged_configuration', templateName: plan.templateName,
+                requestId, stage: "staged_configuration", templateName: plan.templateName,
                 valid: false, errorCount: 1, candidateChars: aiOutput.length, repairAttempt,
                 durationMs: Date.now() - startTime
             });
-            return { config: null, warnings: [], valid: false, errors: [outputValidation.error] };
+            return { config: null, warnings: [], valid: false, errors: [outputValidation.error!] };
         }
-        const planValidation = matchesPlan(outputValidation.config, plan);
+        const planValidation = matchesPlan(outputValidation.config!, plan);
         if (!planValidation.valid) {
             instrumentation.logCandidateValidation({
-                requestId, stage: 'staged_configuration', templateName: plan.templateName,
+                requestId, stage: "staged_configuration", templateName: plan.templateName,
                 valid: false, errorCount: planValidation.errors.length, candidateChars: aiOutput.length, repairAttempt,
                 durationMs: Date.now() - startTime
             });
@@ -404,9 +436,9 @@ async function runConfigurationStage({ brief, plan, retrievedSchemas, themeConte
         // Phase 6 — deep candidate validation (allowed_on, setting
         // type/enum/range, product/collection hallucination guard) layered
         // on top of the already-passed Phase 1/5 checks (§5's pipeline).
-        const candidateValidation = validateCandidate(outputValidation.config, retrievedSchemas, { templateName: plan.templateName });
+        const candidateValidation = validateCandidate(outputValidation.config!, retrievedSchemas, { templateName: plan.templateName });
         instrumentation.logCandidateValidation({
-            requestId, stage: 'staged_configuration', templateName: plan.templateName,
+            requestId, stage: "staged_configuration", templateName: plan.templateName,
             valid: candidateValidation.valid,
             errorCount: candidateValidation.errors.length,
             warningCount: candidateValidation.warnings.length,
@@ -416,23 +448,23 @@ async function runConfigurationStage({ brief, plan, retrievedSchemas, themeConte
             durationMs: Date.now() - startTime
         });
         return {
-            config: candidateValidation.valid ? outputValidation.config : null,
+            config: candidateValidation.valid ? outputValidation.config! : null,
             warnings: outputValidation.warnings || [],
             valid: candidateValidation.valid,
             errors: candidateValidation.errors.map(e => `[${e.code}] ${e.path}: ${e.message}`)
         };
     }
 
-    const firstOutput = await makeAIRequest(buildConfigurationUserPrompt(brief, plan, themeContext, null), systemPrompt, 3, { requestId, callType: 'staged_configuration' });
-    let result = validate(firstOutput, 0);
+    const firstOutput = await makeAIRequest(buildConfigurationUserPrompt(brief, plan, themeContext, null), systemPrompt, 3, { requestId, callType: "staged_configuration" });
+    let result = validate(firstOutput!, 0);
     let repaired = false;
 
     if (!result.valid) {
         repaired = true;
-        const repairOutput = await makeAIRequest(buildConfigurationUserPrompt(brief, plan, themeContext, result.errors), systemPrompt, 3, { requestId, callType: 'staged_configuration_repair' });
-        result = validate(repairOutput, 1);
+        const repairOutput = await makeAIRequest(buildConfigurationUserPrompt(brief, plan, themeContext, result.errors), systemPrompt, 3, { requestId, callType: "staged_configuration_repair" });
+        result = validate(repairOutput!, 1);
         if (!result.valid) {
-            throw new Error(`Stage 2 (configuration) produced invalid output even after a repair attempt: ${result.errors.join('; ')}`);
+            throw new Error(`Stage 2 (configuration) produced invalid output even after a repair attempt: ${result.errors.join("; ")}`);
         }
     }
 
@@ -442,6 +474,14 @@ async function runConfigurationStage({ brief, plan, retrievedSchemas, themeConte
 // ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
+
+export interface RunStagedGenerationOptions {
+    brief: Brief;
+    schemas: SchemaCatalog;
+    themeState?: ThemeState | null;
+    templateName?: string;
+    requestId?: string;
+}
 
 /**
  * options:
@@ -457,18 +497,18 @@ async function runConfigurationStage({ brief, plan, retrievedSchemas, themeConte
  *   - templateName: default 'index'.
  *   - requestId: plumbed into instrumentation, matching existing convention.
  */
-async function runStagedGeneration(options = {}) {
+export async function runStagedGeneration(options: RunStagedGenerationOptions): Promise<StagedGenerationResult> {
     const {
         brief,
         schemas,
         themeState = null,
-        templateName = 'index',
-        requestId = instrumentation.nextRequestId('staged')
+        templateName = "index",
+        requestId = instrumentation.nextRequestId("staged")
     } = options;
 
-    if (!brief) throw new Error('runStagedGeneration() requires a resolved WebsiteBrief');
+    if (!brief) throw new Error("runStagedGeneration() requires a resolved WebsiteBrief");
     if (!schemas || !Array.isArray(schemas.sectionSchemas) || !Array.isArray(schemas.blockSchemas)) {
-        throw new Error('runStagedGeneration() requires the full AI schema catalog ({sectionSchemas, blockSchemas})');
+        throw new Error("runStagedGeneration() requires the full AI schema catalog ({sectionSchemas, blockSchemas})");
     }
 
     const startTime = Date.now();
@@ -479,7 +519,7 @@ async function runStagedGeneration(options = {}) {
     const retrieved = getTemplateEligibleSchemas(schemas, templateName, requestId);
 
     // §7/§25 — bounded, deterministic ThemeState slice; never the whole state.
-    const themeContext = themeState
+    const themeContext: GenerationContext = themeState
         ? selectGenerationContext(themeState, templateName)
         : { templateName, templateExists: false, existingSectionOrder: [], existingSections: [], globalSettingsCurrent: {} };
 
@@ -491,7 +531,7 @@ async function runStagedGeneration(options = {}) {
     instrumentation.logPipeline({
         requestId,
         success: true,
-        stage: 'staged_generation',
+        stage: "staged_generation",
         templateName,
         retrievalMode: retrieved.retrievalMeta.mode,
         selectedSectionCount: retrieved.retrievalMeta.selectedSectionCount,
@@ -515,17 +555,3 @@ async function runStagedGeneration(options = {}) {
         durationMs
     };
 }
-
-module.exports = {
-    MAX_PLAN_SECTIONS,
-    lightweightCapabilityListing,
-    buildPlanningSystemPrompt,
-    buildPlanningUserPrompt,
-    validateGenerationPlan,
-    runPlanningStage,
-    buildConfigurationSystemPrompt,
-    buildConfigurationUserPrompt,
-    matchesPlan,
-    runConfigurationStage,
-    runStagedGeneration
-};

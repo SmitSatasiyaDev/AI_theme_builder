@@ -28,12 +28,29 @@
  * ---------------------------------------------------------------------
  */
 
-const instrumentation = require('./instrumentation');
-const { buildCapabilityIndex } = require('./capability-index');
-const { isEligibleForTemplate } = require('./retrieval');
-const { validateSettingValue, getSettingKind } = require('./validation');
-const { validateThemeState } = require('./theme-state');
-const { mergeGlobalSettingsChanges } = require('./merge');
+import * as instrumentation from "./instrumentation";
+import { buildCapabilityIndex } from "./capability-index";
+import { isEligibleForTemplate } from "./retrieval";
+import { validateSettingValue, getSettingKind } from "./validation";
+import { validateThemeState } from "./theme-state";
+import { mergeGlobalSettingsChanges } from "./merge";
+import type {
+    ApplyOperationResult,
+    ApplyOperationsResult,
+    BlockInstance,
+    BlockTargetResolution,
+    ChangeSummary,
+    KnownMerchantData,
+    Operation,
+    OperationValidationResult,
+    SchemaCatalog,
+    SectionInstance,
+    SectionSchema,
+    SectionTargetResolution,
+    SettingSchema,
+    ThemeState,
+    ValidationIssue
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // §6/§31 — the smallest useful operation set the actual ThemeState/schema
@@ -43,35 +60,35 @@ const { mergeGlobalSettingsChanges } = require('./merge');
 // for global settings) — nothing here invents a new theme concept.
 // ---------------------------------------------------------------------------
 
-const OPERATION_TYPES = Object.freeze([
-    'update_section',
-    'update_block',
-    'add_section',
-    'remove_section',
-    'add_block',
-    'remove_block',
-    'update_global_settings'
+export const OPERATION_TYPES = Object.freeze([
+    "update_section",
+    "update_block",
+    "add_section",
+    "remove_section",
+    "add_block",
+    "remove_block",
+    "update_global_settings"
 ]);
 
 // §22 — small, stable, meaningful conflict/error code set.
-const OPERATION_ERROR_CODES = Object.freeze({
-    OPERATION_INVALID: 'OPERATION_INVALID',
-    OPERATION_TARGET_NOT_FOUND: 'OPERATION_TARGET_NOT_FOUND',
-    OPERATION_TARGET_AMBIGUOUS: 'OPERATION_TARGET_AMBIGUOUS',
-    OPERATION_SECTION_NOT_ALLOWED: 'OPERATION_SECTION_NOT_ALLOWED',
-    OPERATION_BLOCK_NOT_ALLOWED: 'OPERATION_BLOCK_NOT_ALLOWED',
-    OPERATION_MAX_BLOCKS_EXCEEDED: 'OPERATION_MAX_BLOCKS_EXCEEDED',
-    OPERATION_SETTING_INVALID: 'OPERATION_SETTING_INVALID',
-    OPERATION_DATA_REFERENCE_INVALID: 'OPERATION_DATA_REFERENCE_INVALID',
-    OPERATION_CONFLICT: 'OPERATION_CONFLICT',
-    OPERATION_ORDER_INVALID: 'OPERATION_ORDER_INVALID'
+export const OPERATION_ERROR_CODES = Object.freeze({
+    OPERATION_INVALID: "OPERATION_INVALID",
+    OPERATION_TARGET_NOT_FOUND: "OPERATION_TARGET_NOT_FOUND",
+    OPERATION_TARGET_AMBIGUOUS: "OPERATION_TARGET_AMBIGUOUS",
+    OPERATION_SECTION_NOT_ALLOWED: "OPERATION_SECTION_NOT_ALLOWED",
+    OPERATION_BLOCK_NOT_ALLOWED: "OPERATION_BLOCK_NOT_ALLOWED",
+    OPERATION_MAX_BLOCKS_EXCEEDED: "OPERATION_MAX_BLOCKS_EXCEEDED",
+    OPERATION_SETTING_INVALID: "OPERATION_SETTING_INVALID",
+    OPERATION_DATA_REFERENCE_INVALID: "OPERATION_DATA_REFERENCE_INVALID",
+    OPERATION_CONFLICT: "OPERATION_CONFLICT",
+    OPERATION_ORDER_INVALID: "OPERATION_ORDER_INVALID"
 });
 
-function issue(code, path, message) {
+function issue(code: string, path: string, message: string): ValidationIssue {
     return { code, path, message };
 }
 
-function cloneJSON(value) {
+function cloneJSON<T>(value: T): T {
     return value === undefined ? value : JSON.parse(JSON.stringify(value));
 }
 
@@ -79,11 +96,11 @@ function cloneJSON(value) {
 // for logs/repair prompts. Two operations with the exact same shape in the
 // same batch legitimately collide (that's a real duplicate, not a bug to
 // paper over with randomness).
-function generateOperationId(operation) {
+export function generateOperationId(operation: Operation): string {
     const t = operation && operation.target ? operation.target : {};
     return [operation && operation.operation, t.templateName, t.sectionId, t.blockId]
         .filter(Boolean)
-        .join(':');
+        .join(":");
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +113,8 @@ function generateOperationId(operation) {
 // rule").
 // ---------------------------------------------------------------------------
 
-function tokenize(text) {
-    return (text || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function tokenize(text: string | undefined): string[] {
+    return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
 // Generic filler/structural words that carry no target-identifying signal
@@ -110,22 +127,29 @@ function tokenize(text) {
 // untouched so an explicit, specific mention (e.g. "the divider") still
 // matches normally.
 const RESOLUTION_STOP_WORDS = new Set([
-    'i', 'want', 'to', 'the', 'a', 'an', 'of', 'on', 'for', 'my', 'this', 'that', 'it',
-    'please', 'would', 'like', 'me', 'can', 'you',
-    'change', 'update', 'edit', 'modify', 'set', 'remove', 'delete', 'add', 'move', 'replace',
-    'one', 'some', 'section', 'block'
+    "i", "want", "to", "the", "a", "an", "of", "on", "for", "my", "this", "that", "it",
+    "please", "would", "like", "me", "can", "you",
+    "change", "update", "edit", "modify", "set", "remove", "delete", "add", "move", "replace",
+    "one", "some", "section", "block"
 ]);
 
-function queryTokenize(text) {
+function queryTokenize(text: string | undefined): string[] {
     return tokenize(text).filter(token => !RESOLUTION_STOP_WORDS.has(token));
 }
 
-function candidateTokens(id, typeEntry) {
-    const parts = [id, typeEntry ? typeEntry.id : '', typeEntry ? typeEntry.label : '', typeEntry ? typeEntry.category : '', ...(typeEntry && typeEntry.tags ? typeEntry.tags : [])];
-    return new Set(tokenize(parts.join(' ')));
+interface CapabilityEntryLike {
+    id: string;
+    label?: string;
+    category?: string;
+    tags?: string[];
 }
 
-function scoreOverlap(queryTokens, candidateTokenSet) {
+function candidateTokens(id: string, typeEntry: CapabilityEntryLike | undefined): Set<string> {
+    const parts = [id, typeEntry ? typeEntry.id : "", typeEntry ? typeEntry.label : "", typeEntry ? typeEntry.category : "", ...(typeEntry && typeEntry.tags ? typeEntry.tags : [])];
+    return new Set(tokenize(parts.join(" ")));
+}
+
+function scoreOverlap(queryTokens: string[], candidateTokenSet: Set<string>): number {
     let score = 0;
     for (const token of queryTokens) {
         if (candidateTokenSet.has(token)) score++;
@@ -144,59 +168,59 @@ function scoreOverlap(queryTokens, candidateTokenSet) {
  *   { status: 'NOT_FOUND' }
  *   { status: 'AMBIGUOUS', candidates: [{sectionId, type, score}, ...] }
  */
-function resolveSectionTarget(themeState, templateName, query, schemas) {
+export function resolveSectionTarget(themeState: ThemeState, templateName: string, query: string, schemas: SchemaCatalog): SectionTargetResolution {
     const template = themeState.templates && themeState.templates[templateName];
-    if (!template) return { status: 'NOT_FOUND' };
+    if (!template) return { status: "NOT_FOUND" };
 
-    if (query && template.raw.sections.hasOwnProperty(query)) {
-        return { status: 'RESOLVED', sectionId: query, section: template.raw.sections[query] };
+    if (query && Object.prototype.hasOwnProperty.call(template.raw.sections, query)) {
+        return { status: "RESOLVED", sectionId: query, section: template.raw.sections[query] };
     }
 
     const index = buildCapabilityIndex(schemas);
     const sectionTypeById = new Map(index.sections.map(s => [s.id, s]));
     const queryTokens = queryTokenize(query);
-    if (queryTokens.length === 0) return { status: 'NOT_FOUND' };
+    if (queryTokens.length === 0) return { status: "NOT_FOUND" };
 
     const scored = Object.entries(template.raw.sections).map(([sectionId, section]) => {
         const typeEntry = sectionTypeById.get(section.type);
         const score = scoreOverlap(queryTokens, candidateTokens(sectionId, typeEntry));
-        return { sectionId, type: section.type, score };
+        return { sectionId, type: section.type as string | undefined, score };
     }).filter(c => c.score > 0);
 
-    if (scored.length === 0) return { status: 'NOT_FOUND' };
+    if (scored.length === 0) return { status: "NOT_FOUND" };
 
     const topScore = Math.max(...scored.map(c => c.score));
     const top = scored.filter(c => c.score === topScore);
-    if (top.length > 1) return { status: 'AMBIGUOUS', candidates: top };
-    return { status: 'RESOLVED', sectionId: top[0].sectionId, section: template.raw.sections[top[0].sectionId] };
+    if (top.length > 1) return { status: "AMBIGUOUS", candidates: top };
+    return { status: "RESOLVED", sectionId: top[0].sectionId, section: template.raw.sections[top[0].sectionId] };
 }
 
 /**
  * Same idea, scoped to blocks WITHIN one already-resolved section.
  */
-function resolveBlockTarget(section, query, schemas) {
-    const blocks = (section && section.blocks) || {};
-    if (query && blocks.hasOwnProperty(query)) {
-        return { status: 'RESOLVED', blockId: query, block: blocks[query] };
+export function resolveBlockTarget(section: SectionInstance | null | undefined, query: string, schemas: SchemaCatalog): BlockTargetResolution {
+    const blocks: Record<string, BlockInstance> = (section && section.blocks) || {};
+    if (query && Object.prototype.hasOwnProperty.call(blocks, query)) {
+        return { status: "RESOLVED", blockId: query, block: blocks[query] };
     }
 
     const index = buildCapabilityIndex(schemas);
     const blockTypeById = new Map(index.blocks.map(b => [b.id, b]));
     const queryTokens = queryTokenize(query);
-    if (queryTokens.length === 0) return { status: 'NOT_FOUND' };
+    if (queryTokens.length === 0) return { status: "NOT_FOUND" };
 
     const scored = Object.entries(blocks).map(([blockId, block]) => {
         const typeEntry = blockTypeById.get(block.type);
         const score = scoreOverlap(queryTokens, candidateTokens(blockId, typeEntry));
-        return { blockId, type: block.type, score };
+        return { blockId, type: block.type as string | undefined, score };
     }).filter(c => c.score > 0);
 
-    if (scored.length === 0) return { status: 'NOT_FOUND' };
+    if (scored.length === 0) return { status: "NOT_FOUND" };
 
     const topScore = Math.max(...scored.map(c => c.score));
     const top = scored.filter(c => c.score === topScore);
-    if (top.length > 1) return { status: 'AMBIGUOUS', candidates: top };
-    return { status: 'RESOLVED', blockId: top[0].blockId, block: blocks[top[0].blockId] };
+    if (top.length > 1) return { status: "AMBIGUOUS", candidates: top };
+    return { status: "RESOLVED", blockId: top[0].blockId, block: blocks[top[0].blockId] };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,10 +233,15 @@ function resolveBlockTarget(section, query, schemas) {
 // than re-deriving setting-shape logic from scratch.
 // ---------------------------------------------------------------------------
 
-function validateChangedSettings(settingsSchemaMap, changes, pathPrefix, knownMerchantData) {
-    const errors = [];
-    if (!changes || typeof changes !== 'object' || Array.isArray(changes) || Object.keys(changes).length === 0) {
-        return [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, pathPrefix, 'changes.settings must be a non-empty object — an operation must change at least one setting.')];
+function validateChangedSettings(
+    settingsSchemaMap: Record<string, SettingSchema> | undefined,
+    changes: Record<string, unknown> | undefined,
+    pathPrefix: string,
+    knownMerchantData: KnownMerchantData
+): ValidationIssue[] {
+    const errors: ValidationIssue[] = [];
+    if (!changes || typeof changes !== "object" || Array.isArray(changes) || Object.keys(changes).length === 0) {
+        return [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, pathPrefix, "changes.settings must be a non-empty object — an operation must change at least one setting.")];
     }
     for (const [key, value] of Object.entries(changes)) {
         const settingSchema = settingsSchemaMap ? settingsSchemaMap[key] : undefined;
@@ -220,10 +249,11 @@ function validateChangedSettings(settingsSchemaMap, changes, pathPrefix, knownMe
             errors.push(issue(OPERATION_ERROR_CODES.OPERATION_SETTING_INVALID, `${pathPrefix}.${key}`, `"${key}" is not a setting defined by this section/block's schema.`));
             continue;
         }
-        const { typeName } = getSettingKind(settingSchema);
-        if ((typeName === 'product_picker' || typeName === 'collection') && value !== '' && value !== null) {
-            const known = typeName === 'product_picker' ? (knownMerchantData.products || []) : (knownMerchantData.collections || []);
-            if (!known.includes(value)) {
+        const kind = getSettingKind(settingSchema);
+        const typeName = "typeName" in kind ? kind.typeName : undefined;
+        if ((typeName === "product_picker" || typeName === "collection") && value !== "" && value !== null) {
+            const known = typeName === "product_picker" ? (knownMerchantData.products || []) : (knownMerchantData.collections || []);
+            if (!known.includes(value as string)) {
                 errors.push(issue(OPERATION_ERROR_CODES.OPERATION_DATA_REFERENCE_INVALID, `${pathPrefix}.${key}`, `"${key}" (${typeName}) value ${JSON.stringify(value)} is not a known merchant reference — leave blank rather than inventing one.`));
                 continue;
             }
@@ -235,113 +265,120 @@ function validateChangedSettings(settingsSchemaMap, changes, pathPrefix, knownMe
     return errors;
 }
 
-function allowedBlocksList(sectionSchema) {
+function allowedBlocksList(sectionSchema: SectionSchema | undefined): string[] {
     if (!sectionSchema || !sectionSchema.allowed_blocks) return [];
     return Array.isArray(sectionSchema.allowed_blocks) ? sectionSchema.allowed_blocks : Object.keys(sectionSchema.allowed_blocks);
+}
+
+export interface ValidateOperationOptions {
+    themeState: ThemeState;
+    schemas: SchemaCatalog;
+    knownMerchantData?: KnownMerchantData;
+    requestId?: string;
 }
 
 /**
  * options: { themeState, schemas, knownMerchantData = {} }
  * Returns { valid, errors } — never mutates anything, never touches AI.
  */
-function validateOperation(operation, options = {}) {
+export function validateOperation(operation: Operation, options: Partial<ValidateOperationOptions> = {}): OperationValidationResult {
     const { themeState, schemas, knownMerchantData = {} } = options;
-    const errors = [];
+    const errors: ValidationIssue[] = [];
 
-    if (!operation || typeof operation !== 'object') {
-        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, 'operation', 'operation must be an object.')] };
+    if (!operation || typeof operation !== "object") {
+        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, "operation", "operation must be an object.")] };
     }
     if (!OPERATION_TYPES.includes(operation.operation)) {
-        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, 'operation.operation', `"${operation.operation}" is not a supported operation type. Supported: ${OPERATION_TYPES.join(', ')}`)] };
+        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, "operation.operation", `"${operation.operation}" is not a supported operation type. Supported: ${OPERATION_TYPES.join(", ")}`)] };
     }
     const target = operation.target || {};
     const changes = operation.changes || {};
     const op = operation.operation;
 
-    if (op !== 'update_global_settings' && !target.templateName) {
-        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, 'operation.target.templateName', 'target.templateName is required.')] };
+    if (op !== "update_global_settings" && !target.templateName) {
+        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, "operation.target.templateName", "target.templateName is required.")] };
     }
 
-    const sectionById = new Map(schemas.sectionSchemas.map(s => [s.id, s]));
-    const blockById = new Map(schemas.blockSchemas.map(b => [b.id, b]));
-    const template = target.templateName ? (themeState.templates && themeState.templates[target.templateName]) : null;
-    const existingSections = template ? template.raw.sections : {};
+    const sectionById = new Map(schemas!.sectionSchemas.map(s => [s.id, s]));
+    const blockById = new Map(schemas!.blockSchemas.map(b => [b.id, b]));
+    const template = target.templateName ? (themeState!.templates && themeState!.templates[target.templateName]) : null;
+    const existingSections: Record<string, SectionInstance> = template ? template.raw.sections : {};
 
-    if (op === 'update_section' || op === 'remove_section') {
-        if (!target.sectionId || !existingSections.hasOwnProperty(target.sectionId)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_TARGET_NOT_FOUND, 'operation.target.sectionId', `Section "${target.sectionId}" does not exist in template "${target.templateName}".`));
+    if (op === "update_section" || op === "remove_section") {
+        if (!target.sectionId || !Object.prototype.hasOwnProperty.call(existingSections, target.sectionId)) {
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_TARGET_NOT_FOUND, "operation.target.sectionId", `Section "${target.sectionId}" does not exist in template "${target.templateName}".`));
             return { valid: false, errors };
         }
-        if (op === 'update_section') {
+        if (op === "update_section") {
             const sectionSchema = sectionById.get(existingSections[target.sectionId].type);
-            errors.push(...validateChangedSettings(sectionSchema ? sectionSchema.settings : {}, changes.settings, 'operation.changes.settings', knownMerchantData));
+            errors.push(...validateChangedSettings(sectionSchema ? sectionSchema.settings : {}, changes.settings, "operation.changes.settings", knownMerchantData));
         }
         return { valid: errors.length === 0, errors };
     }
 
-    if (op === 'add_section') {
+    if (op === "add_section") {
         if (!changes.type || !sectionById.has(changes.type)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_SECTION_NOT_ALLOWED, 'operation.changes.type', `"${changes.type}" is not a section type that exists in the schema catalog.`));
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_SECTION_NOT_ALLOWED, "operation.changes.type", `"${changes.type}" is not a section type that exists in the schema catalog.`));
             return { valid: false, errors };
         }
-        const sectionSchema = sectionById.get(changes.type);
-        if (!isEligibleForTemplate(sectionSchema, target.templateName)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_SECTION_NOT_ALLOWED, 'operation.target.templateName', `Section type "${changes.type}" declares allowed_on ${JSON.stringify(sectionSchema.allowed_on)}, which does not include "${target.templateName}".`));
+        const sectionSchema = sectionById.get(changes.type)!;
+        if (!isEligibleForTemplate(sectionSchema, target.templateName!)) {
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_SECTION_NOT_ALLOWED, "operation.target.templateName", `Section type "${changes.type}" declares allowed_on ${JSON.stringify(sectionSchema.allowed_on)}, which does not include "${target.templateName}".`));
         }
         if (changes.settings) {
-            errors.push(...validateChangedSettings(sectionSchema.settings, changes.settings, 'operation.changes.settings', knownMerchantData));
+            errors.push(...validateChangedSettings(sectionSchema.settings, changes.settings, "operation.changes.settings", knownMerchantData));
         }
         return { valid: errors.length === 0, errors };
     }
 
-    if (op === 'update_global_settings') {
-        const globalSettingsSchema = schemas.globalSchema ? schemas.globalSchema.settings : {};
-        errors.push(...validateChangedSettings(globalSettingsSchema, changes.settings, 'operation.changes.settings', knownMerchantData));
+    if (op === "update_global_settings") {
+        const globalSettingsSchema = schemas!.globalSchema ? schemas!.globalSchema.settings : {};
+        errors.push(...validateChangedSettings(globalSettingsSchema, changes.settings, "operation.changes.settings", knownMerchantData));
         return { valid: errors.length === 0, errors };
     }
 
     // Block-level operations all require an existing parent section.
-    if (!target.sectionId || !existingSections.hasOwnProperty(target.sectionId)) {
-        errors.push(issue(OPERATION_ERROR_CODES.OPERATION_TARGET_NOT_FOUND, 'operation.target.sectionId', `Section "${target.sectionId}" does not exist in template "${target.templateName}".`));
+    if (!target.sectionId || !Object.prototype.hasOwnProperty.call(existingSections, target.sectionId)) {
+        errors.push(issue(OPERATION_ERROR_CODES.OPERATION_TARGET_NOT_FOUND, "operation.target.sectionId", `Section "${target.sectionId}" does not exist in template "${target.templateName}".`));
         return { valid: false, errors };
     }
     const parentSection = existingSections[target.sectionId];
     const parentSectionSchema = sectionById.get(parentSection.type);
-    const existingBlocks = parentSection.blocks || {};
+    const existingBlocks: Record<string, BlockInstance> = parentSection.blocks || {};
 
-    if (op === 'update_block' || op === 'remove_block') {
-        if (!target.blockId || !existingBlocks.hasOwnProperty(target.blockId)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_TARGET_NOT_FOUND, 'operation.target.blockId', `Block "${target.blockId}" does not exist in section "${target.sectionId}".`));
+    if (op === "update_block" || op === "remove_block") {
+        if (!target.blockId || !Object.prototype.hasOwnProperty.call(existingBlocks, target.blockId)) {
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_TARGET_NOT_FOUND, "operation.target.blockId", `Block "${target.blockId}" does not exist in section "${target.sectionId}".`));
             return { valid: false, errors };
         }
-        if (op === 'update_block') {
+        if (op === "update_block") {
             const blockSchema = blockById.get(existingBlocks[target.blockId].type);
-            errors.push(...validateChangedSettings(blockSchema ? blockSchema.settings : {}, changes.settings, 'operation.changes.settings', knownMerchantData));
+            errors.push(...validateChangedSettings(blockSchema ? blockSchema.settings : {}, changes.settings, "operation.changes.settings", knownMerchantData));
         }
         return { valid: errors.length === 0, errors };
     }
 
-    if (op === 'add_block') {
+    if (op === "add_block") {
         if (!changes.type || !blockById.has(changes.type)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_BLOCK_NOT_ALLOWED, 'operation.changes.type', `"${changes.type}" is not a block type that exists in the schema catalog.`));
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_BLOCK_NOT_ALLOWED, "operation.changes.type", `"${changes.type}" is not a block type that exists in the schema catalog.`));
             return { valid: false, errors };
         }
         const allowed = allowedBlocksList(parentSectionSchema);
         if (allowed.length > 0 && !allowed.includes(changes.type)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_BLOCK_NOT_ALLOWED, 'operation.changes.type', `Block type "${changes.type}" is not allowed inside a "${parentSection.type}" section.`));
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_BLOCK_NOT_ALLOWED, "operation.changes.type", `Block type "${changes.type}" is not allowed inside a "${parentSection.type}" section.`));
         }
-        if (parentSectionSchema && typeof parentSectionSchema.max_blocks === 'number' && Object.keys(existingBlocks).length + 1 > parentSectionSchema.max_blocks) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_MAX_BLOCKS_EXCEEDED, 'operation.target.sectionId', `Section "${target.sectionId}" already has ${Object.keys(existingBlocks).length} block(s); adding one more would exceed max_blocks (${parentSectionSchema.max_blocks}).`));
+        if (parentSectionSchema && typeof parentSectionSchema.max_blocks === "number" && Object.keys(existingBlocks).length + 1 > parentSectionSchema.max_blocks) {
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_MAX_BLOCKS_EXCEEDED, "operation.target.sectionId", `Section "${target.sectionId}" already has ${Object.keys(existingBlocks).length} block(s); adding one more would exceed max_blocks (${parentSectionSchema.max_blocks}).`));
         }
         if (changes.settings) {
-            const blockSchema = blockById.get(changes.type);
-            errors.push(...validateChangedSettings(blockSchema.settings, changes.settings, 'operation.changes.settings', knownMerchantData));
+            const blockSchema = blockById.get(changes.type)!;
+            errors.push(...validateChangedSettings(blockSchema.settings, changes.settings, "operation.changes.settings", knownMerchantData));
         }
         return { valid: errors.length === 0, errors };
     }
 
     // Unreachable given the OPERATION_TYPES membership check above.
-    return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, 'operation.operation', `Unhandled operation type "${op}".`)] };
+    return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, "operation.operation", `Unhandled operation type "${op}".`)] };
 }
 
 // ---------------------------------------------------------------------------
@@ -351,7 +388,7 @@ function validateOperation(operation, options = {}) {
 // in Phase 7) — only the fields the operation actually owns are replaced.
 // ---------------------------------------------------------------------------
 
-function nextAutoId(existingIds, typePrefix) {
+function nextAutoId(existingIds: string[], typePrefix: string): string {
     const pattern = new RegExp(`^${typePrefix}-(\\d+)$`);
     let max = 0;
     for (const id of existingIds) {
@@ -361,8 +398,8 @@ function nextAutoId(existingIds, typePrefix) {
     return `${typePrefix}-${max + 1}`;
 }
 
-function insertAt(array, id, position) {
-    return position === 'start' ? [id, ...array] : [...array, id];
+function insertAt(array: string[], id: string, position: string | undefined): string[] {
+    return position === "start" ? [id, ...array] : [...array, id];
 }
 
 /**
@@ -373,7 +410,7 @@ function insertAt(array, id, position) {
  *
  * Returns { themeState: newThemeState, changeSummary }.
  */
-function executeOperation(themeState, operation) {
+export function executeOperation(themeState: ThemeState, operation: Operation): { themeState: ThemeState; changeSummary: ChangeSummary } {
     const newThemeState = cloneJSON({
         themeId: themeState.themeId,
         sourcePath: themeState.sourcePath,
@@ -388,84 +425,85 @@ function executeOperation(themeState, operation) {
         // — remain accurate. Section/block COUNTS in meta go stale after an
         // operation; nothing here relies on them being live.
         meta: themeState.meta || { unparseableTemplates: [], globalSettingsError: null }
-    });
+    }) as ThemeState;
 
     const target = operation.target || {};
     const changes = operation.changes || {};
     const op = operation.operation;
     const operationId = generateOperationId(operation);
-    let changed = [];
+    let changed: string[] = [];
 
-    if (op === 'update_global_settings') {
+    if (op === "update_global_settings") {
         const { mergedRaw, changedKeys } = mergeGlobalSettingsChanges(
             newThemeState.globalSettings ? newThemeState.globalSettings.raw : null,
             changes.settings
         );
-        newThemeState.globalSettings = { sourceFile: (themeState.globalSettings && themeState.globalSettings.sourceFile) || 'config/settings_data.json', raw: mergedRaw };
+        newThemeState.globalSettings = { sourceFile: (themeState.globalSettings && themeState.globalSettings.sourceFile) || "config/settings_data.json", raw: mergedRaw };
         changed = changedKeys.map(k => `globalSettings.current.${k}`);
-        return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: 'globalSettings', changed, preserved: true } };
+        return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: "globalSettings", changed, preserved: true } };
     }
 
-    const templateName = target.templateName;
+    const templateName = target.templateName!;
     const existingTemplate = newThemeState.templates[templateName];
     const templateRaw = existingTemplate ? existingTemplate.raw : { sections: {}, order: [] };
     const sourceFile = (existingTemplate && existingTemplate.sourceFile) || `templates/${templateName}.json`;
+    const classification = (existingTemplate && existingTemplate.classification) || { sections: {} };
 
-    if (op === 'add_section') {
-        const sectionId = nextAutoId(Object.keys(templateRaw.sections), changes.type);
-        templateRaw.sections[sectionId] = { type: changes.type, settings: changes.settings || {}, blocks: {}, block_order: [] };
+    if (op === "add_section") {
+        const sectionId = nextAutoId(Object.keys(templateRaw.sections), changes.type!);
+        templateRaw.sections[sectionId] = { type: changes.type!, settings: changes.settings || {}, blocks: {}, block_order: [] };
         templateRaw.order = insertAt(templateRaw.order, sectionId, changes.position);
         changed = [`sections.${sectionId}`];
-        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw };
+        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw, classification };
         return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: `${templateName}.${sectionId}`, changed, preserved: true } };
     }
 
-    if (op === 'remove_section') {
-        delete templateRaw.sections[target.sectionId];
+    if (op === "remove_section") {
+        delete templateRaw.sections[target.sectionId!];
         templateRaw.order = templateRaw.order.filter(id => id !== target.sectionId);
         changed = [`sections.${target.sectionId}`];
-        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw };
+        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw, classification };
         return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: `${templateName}.${target.sectionId}`, changed, preserved: true } };
     }
 
-    if (op === 'update_section') {
-        const existing = templateRaw.sections[target.sectionId];
-        templateRaw.sections[target.sectionId] = { ...existing, settings: { ...(existing.settings || {}), ...changes.settings } };
-        changed = Object.keys(changes.settings).map(k => `settings.${k}`);
-        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw };
+    if (op === "update_section") {
+        const existing = templateRaw.sections[target.sectionId!];
+        templateRaw.sections[target.sectionId!] = { ...existing, settings: { ...(existing.settings || {}), ...changes.settings } };
+        changed = Object.keys(changes.settings || {}).map(k => `settings.${k}`);
+        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw, classification };
         return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: `${templateName}.${target.sectionId}`, changed, preserved: true } };
     }
 
     // Block-level operations
-    const section = templateRaw.sections[target.sectionId];
-    const blocks = { ...(section.blocks || {}) };
+    const section = templateRaw.sections[target.sectionId!];
+    const blocks: Record<string, BlockInstance> = { ...(section.blocks || {}) };
     let blockOrder = [...(section.block_order || [])];
 
-    if (op === 'add_block') {
-        const blockId = nextAutoId(Object.keys(blocks), changes.type);
-        blocks[blockId] = { type: changes.type, settings: changes.settings || {} };
+    if (op === "add_block") {
+        const blockId = nextAutoId(Object.keys(blocks), changes.type!);
+        blocks[blockId] = { type: changes.type!, settings: changes.settings || {} };
         blockOrder = insertAt(blockOrder, blockId, changes.position);
-        templateRaw.sections[target.sectionId] = { ...section, blocks, block_order: blockOrder };
+        templateRaw.sections[target.sectionId!] = { ...section, blocks, block_order: blockOrder };
         changed = [`blocks.${blockId}`];
-        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw };
+        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw, classification };
         return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: `${templateName}.${target.sectionId}.${blockId}`, changed, preserved: true } };
     }
 
-    if (op === 'remove_block') {
-        delete blocks[target.blockId];
+    if (op === "remove_block") {
+        delete blocks[target.blockId!];
         blockOrder = blockOrder.filter(id => id !== target.blockId);
-        templateRaw.sections[target.sectionId] = { ...section, blocks, block_order: blockOrder };
+        templateRaw.sections[target.sectionId!] = { ...section, blocks, block_order: blockOrder };
         changed = [`blocks.${target.blockId}`];
-        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw };
+        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw, classification };
         return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: `${templateName}.${target.sectionId}.${target.blockId}`, changed, preserved: true } };
     }
 
-    if (op === 'update_block') {
-        const existingBlock = blocks[target.blockId];
-        blocks[target.blockId] = { ...existingBlock, settings: { ...(existingBlock.settings || {}), ...changes.settings } };
-        templateRaw.sections[target.sectionId] = { ...section, blocks, block_order: blockOrder };
-        changed = Object.keys(changes.settings).map(k => `settings.${k}`);
-        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw };
+    if (op === "update_block") {
+        const existingBlock = blocks[target.blockId!];
+        blocks[target.blockId!] = { ...existingBlock, settings: { ...(existingBlock.settings || {}), ...changes.settings } };
+        templateRaw.sections[target.sectionId!] = { ...section, blocks, block_order: blockOrder };
+        changed = Object.keys(changes.settings || {}).map(k => `settings.${k}`);
+        newThemeState.templates[templateName] = { sourceFile, raw: templateRaw, classification };
         return { themeState: newThemeState, changeSummary: { operationId, operation: op, target: `${templateName}.${target.sectionId}.${target.blockId}`, changed, preserved: true } };
     }
 
@@ -476,9 +514,9 @@ function executeOperation(themeState, operation) {
  * Applies exactly ONE operation end to end: validate -> execute -> validate
  * the resulting ThemeState (§25). Never mutates the input ThemeState.
  */
-function applyOperationToThemeState(themeState, operation, options = {}) {
+export function applyOperationToThemeState(themeState: ThemeState, operation: Operation, options: Partial<ValidateOperationOptions> = {}): ApplyOperationResult {
     const startTime = Date.now();
-    const requestId = options.requestId || instrumentation.nextRequestId('operation');
+    const requestId = options.requestId || instrumentation.nextRequestId("operation");
     // Always validate against THIS call's `themeState` argument, never a
     // possibly-stale `options.themeState` — critical inside
     // applyOperationsToThemeState()'s sequential loop below, where each
@@ -495,7 +533,7 @@ function applyOperationToThemeState(themeState, operation, options = {}) {
     const structuralCheck = validateThemeState(newThemeState);
     if (!structuralCheck.valid) {
         instrumentation.logOperation({ requestId, operationId: changeSummary.operationId, operation: operation.operation, valid: false, errorCount: structuralCheck.errors.length, durationMs: Date.now() - startTime });
-        return { valid: false, errors: structuralCheck.errors.map(m => issue(OPERATION_ERROR_CODES.OPERATION_CONFLICT, 'themeState', m)), themeState: null, changeSummary: null };
+        return { valid: false, errors: structuralCheck.errors.map(m => issue(OPERATION_ERROR_CODES.OPERATION_CONFLICT, "themeState", m)), themeState: null, changeSummary: null };
     }
 
     instrumentation.logOperation({ requestId, operationId: changeSummary.operationId, operation: operation.operation, valid: true, errorCount: 0, changedCount: changeSummary.changed.length, durationMs: Date.now() - startTime });
@@ -511,9 +549,9 @@ function applyOperationToThemeState(themeState, operation, options = {}) {
 // returns the ORIGINAL, untouched ThemeState — never a partial result.
 // ---------------------------------------------------------------------------
 
-function targetKey(operation) {
+function targetKey(operation: Operation): string {
     const t = operation.target || {};
-    return [t.templateName, t.sectionId, t.blockId].filter(Boolean).join('.');
+    return [t.templateName, t.sectionId, t.blockId].filter(Boolean).join(".");
 }
 
 /**
@@ -527,15 +565,15 @@ function targetKey(operation) {
  * sequential re-validation below, which already catches "target doesn't
  * exist yet" naturally.
  */
-function validateOperationOrder(operations) {
-    const errors = [];
-    const removedTargets = new Set();
+export function validateOperationOrder(operations: Operation[]): ValidationIssue[] {
+    const errors: ValidationIssue[] = [];
+    const removedTargets = new Set<string>();
     for (const operation of operations) {
         const key = targetKey(operation);
         if (removedTargets.has(key)) {
-            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_ORDER_INVALID, 'operations', `Operation "${operation.operation}" targets "${key}", which an earlier operation in this batch already removed.`));
+            errors.push(issue(OPERATION_ERROR_CODES.OPERATION_ORDER_INVALID, "operations", `Operation "${operation.operation}" targets "${key}", which an earlier operation in this batch already removed.`));
         }
-        if (operation.operation === 'remove_section' || operation.operation === 'remove_block') {
+        if (operation.operation === "remove_section" || operation.operation === "remove_block") {
             removedTargets.add(key);
         }
     }
@@ -548,12 +586,12 @@ function validateOperationOrder(operations) {
  * `themeState` is null and the CALLER's original object is guaranteed
  * untouched (nothing here ever mutates it).
  */
-function applyOperationsToThemeState(themeState, operations, options = {}) {
+export function applyOperationsToThemeState(themeState: ThemeState, operations: Operation[], options: Partial<ValidateOperationOptions> = {}): ApplyOperationsResult {
     const startTime = Date.now();
-    const requestId = options.requestId || instrumentation.nextRequestId('operations');
+    const requestId = options.requestId || instrumentation.nextRequestId("operations");
 
     if (!Array.isArray(operations) || operations.length === 0) {
-        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, 'operations', 'operations must be a non-empty array.')], themeState: null, changeSummaries: [] };
+        return { valid: false, errors: [issue(OPERATION_ERROR_CODES.OPERATION_INVALID, "operations", "operations must be a non-empty array.")], themeState: null, changeSummaries: [] };
     }
 
     const orderErrors = validateOperationOrder(operations);
@@ -563,7 +601,7 @@ function applyOperationsToThemeState(themeState, operations, options = {}) {
     }
 
     let working = themeState;
-    const changeSummaries = [];
+    const changeSummaries: ChangeSummary[] = [];
     for (const operation of operations) {
         const result = applyOperationToThemeState(working, operation, options);
         if (!result.valid) {
@@ -574,8 +612,8 @@ function applyOperationsToThemeState(themeState, operations, options = {}) {
             instrumentation.logOperationBatch({ requestId, operationCount: operations.length, valid: false, errorCount: result.errors.length, durationMs: Date.now() - startTime });
             return { valid: false, errors: result.errors, themeState: null, changeSummaries: [] };
         }
-        working = result.themeState;
-        changeSummaries.push(result.changeSummary);
+        working = result.themeState!;
+        changeSummaries.push(result.changeSummary!);
     }
 
     instrumentation.logOperationBatch({ requestId, operationCount: operations.length, valid: true, errorCount: 0, durationMs: Date.now() - startTime });
@@ -588,7 +626,7 @@ function applyOperationsToThemeState(themeState, operations, options = {}) {
  * distinction that matters is at the edit-pipeline.js/apply.js boundary,
  * not here).
  */
-function dryRunOperations(themeState, operations, options = {}) {
+export function dryRunOperations(themeState: ThemeState, operations: Operation[], options: Partial<ValidateOperationOptions> = {}): { wouldApply: boolean; errors: ValidationIssue[]; changeSummaries: ChangeSummary[] } {
     const result = applyOperationsToThemeState(themeState, operations, options);
     return {
         wouldApply: result.valid,
@@ -596,17 +634,3 @@ function dryRunOperations(themeState, operations, options = {}) {
         changeSummaries: result.changeSummaries
     };
 }
-
-module.exports = {
-    OPERATION_TYPES,
-    OPERATION_ERROR_CODES,
-    generateOperationId,
-    resolveSectionTarget,
-    resolveBlockTarget,
-    validateOperation,
-    executeOperation,
-    applyOperationToThemeState,
-    validateOperationOrder,
-    applyOperationsToThemeState,
-    dryRunOperations
-};
