@@ -1,0 +1,13 @@
+{
+    "id": "email_form",
+    "label": "Email Form",
+    "purpose": "Newsletter email signup form block",
+    "category": "form-input",
+    "tags": [
+        "newsletter"
+    ],
+    "settings": {
+        "placeholder": "text",
+        "button_label": "text"
+    }
+}

@@ -1,0 +1,20 @@
+{
+    "id": "atc-button",
+    "label": "Add to Cart Button",
+    "purpose": "Product add to cart button",
+    "category": "conversion",
+    "tags": [
+        "cta",
+        "add-to-cart"
+    ],
+    "settings": {
+        "product": "product_picker",
+        "button_label": "text",
+        "show_quantity": "checkbox",
+        "button_style": [
+            "primary",
+            "secondary"
+        ]
+    },
+    "_notes": "Add to cart button block. Select product and customize button appearance. Shows quantity selector if enabled."
+}

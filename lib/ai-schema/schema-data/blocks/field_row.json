@@ -1,0 +1,40 @@
+{
+    "id": "field_row",
+    "label": "Input Row",
+    "purpose": "A row of up to two form input fields, used inside the Contact Form section",
+    "category": "form-input",
+    "tags": [],
+    "settings": {
+        "input_1_enabled": [
+            "true",
+            "false"
+        ],
+        "input_1_type": [
+            "name",
+            "email",
+            "phone",
+            "custom"
+        ],
+        "input_1_required": [
+            "true",
+            "false"
+        ],
+        "input_1_custom_name": "text",
+        "input_2_enabled": [
+            "true",
+            "false"
+        ],
+        "input_2_type": [
+            "name",
+            "email",
+            "phone",
+            "custom"
+        ],
+        "input_2_required": [
+            "true",
+            "false"
+        ],
+        "input_2_custom_name": "text"
+    },
+    "_notes": "Corrects a stale pre-Phase-11 schema (blocks/input_row.json, id \"input_row\") that didn't match any real Shopify block type or setting shape — the real Liquid block (referenced by sections/contact-form.liquid as \"field_row\") is a row of up to two inputs, each independently enabled/typed/required, not a single generic field. input_2_custom_name only applies when the corresponding *_type is \"custom\"."
+}

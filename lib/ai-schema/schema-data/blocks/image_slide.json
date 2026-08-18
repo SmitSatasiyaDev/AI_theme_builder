@@ -1,0 +1,28 @@
+{
+    "id": "image_slide",
+    "label": "Image Slide",
+    "purpose": "A single image slide within an Image/Video Slider section",
+    "category": "media",
+    "tags": [
+        "slider",
+        "gallery"
+    ],
+    "settings": {
+        "image": "image_picker",
+        "link": "url",
+        "description": "richtext",
+        "desc_alignment": [
+            "",
+            "center",
+            "right"
+        ],
+        "desc_color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse"
+        ]
+    },
+    "_notes": "desc_alignment's 'left' option is the literal empty string \"\" in the real Shopify schema (Shopify's own default/no-override value), not the word \"left\" — copy it verbatim."
+}

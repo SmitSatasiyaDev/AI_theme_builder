@@ -1,0 +1,59 @@
+{
+    "id": "rich-text",
+    "label": "Rich Text",
+    "purpose": "General-purpose text content section built from stackable content blocks",
+    "category": "content",
+    "tags": [
+        "text"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "desktop_content_position": [
+            "left",
+            "center",
+            "right"
+        ],
+        "desktop_content_alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "mobile_content_alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "full_width": [
+            "true",
+            "false"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ]
+    },
+    "allowed_blocks": [
+        "heading",
+        "caption",
+        "rating-stars",
+        "trustpilot-stars",
+        "text",
+        "button",
+        "atc-button",
+        "container"
+    ],
+    "_notes": "This section has no content settings of its own beyond layout/color — all actual content (headings, text, buttons) comes from its blocks, stacked in any order/combination."
+}

@@ -1,0 +1,24 @@
+{
+    "id": "tab",
+    "label": "Tab",
+    "purpose": "Single tab with button, icon, and content area",
+    "category": "content",
+    "tags": [
+        "tabs"
+    ],
+    "_notes": "The 'text' field MUST be wrapped with <p> tags. Example: '<p>Tab content</p>'. btn_icon uses Material Symbols names.",
+    "settings": {
+        "title": "inline_richtext",
+        "btn_label": "inline_richtext",
+        "btn_icon": "text",
+        "filled_btn_icon": "checkbox",
+        "btn_custom_icon": "image_picker",
+        "image": "image_picker",
+        "video": "video",
+        "loop": "checkbox",
+        "heading": "inline_richtext",
+        "text": "richtext",
+        "button_label": "text",
+        "button_link": "url"
+    }
+}

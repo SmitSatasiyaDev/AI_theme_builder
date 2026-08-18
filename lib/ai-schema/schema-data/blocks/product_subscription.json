@@ -1,0 +1,36 @@
+{
+    "id": "product_subscription",
+    "label": "Subscription Widget",
+    "purpose": "Offer subscription/recurring purchase option with discount",
+    "category": "conversion",
+    "tags": [
+        "subscription"
+    ],
+    "settings": {
+        "show_subscription_option": {
+            "type": "checkbox",
+            "default": true
+        },
+        "subscription_discount": {
+            "type": "range",
+            "min": 0,
+            "max": 50,
+            "default": 15
+        },
+        "frequency_options": {
+            "type": "text",
+            "default": "7,14,30"
+        },
+        "default_frequency": {
+            "type": "range",
+            "min": 7,
+            "max": 90,
+            "default": 30
+        },
+        "preselect_subscription": {
+            "type": "checkbox",
+            "default": false
+        }
+    },
+    "_notes": "For subscription products (recurring orders). Offers 'Subscribe & Save' option with discount. Shows frequency selector (weekly, monthly). Requires Shopify subscription apps like Recharge or Appstle."
+}

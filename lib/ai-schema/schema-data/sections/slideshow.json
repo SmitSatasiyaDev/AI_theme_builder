@@ -1,0 +1,42 @@
+{
+    "id": "slideshow",
+    "label": "Slideshow",
+    "purpose": "Image slideshow with text overlay and buttons",
+    "category": "hero",
+    "tags": [],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "slide_height": [
+            "adapt_image",
+            "small",
+            "medium",
+            "large"
+        ],
+        "slider_visual": [
+            "dots",
+            "counter",
+            "numbers"
+        ],
+        "auto_rotate": [
+            "true",
+            "false"
+        ],
+        "show_text_below": [
+            "true",
+            "false"
+        ]
+    },
+    "allowed_blocks": [
+        "slide"
+    ],
+    "_notes": "Slideshow should have at least 2 slides. Text in slide blocks must be wrapped with <p> tags."
+}

@@ -1,0 +1,93 @@
+{
+  "description": "Deterministic keyword -> category/tag rules for Phase 2 retrieval (retrieval.js). Kept small and hand-readable on purpose (Phase 2 spec section 7: 'the retrieval process must be understandable and debuggable'). Matching is a case-insensitive substring test against the raw user prompt. No niche-specific words (e.g. 'pet', 'fashion') are included here deliberately — this taxonomy is generic e-commerce capability language, not niche/brand personalization, which belongs to a later phase (WebsiteBrief). See PHASE2_REPORT.md for how each rule was chosen and measured.",
+
+  "defaultRule": {
+    "description": "Fires for generic commercial-intent language that shows up in nearly every merchant request, regardless of niche. Establishes a sensible baseline set of homepage-relevant categories (mirrors the existing system prompt's own default-to-'modern'-palette philosophy in detectNicheAndGetColors()) rather than requiring every prompt to name specific capabilities by name.",
+    "keywords": ["store", "shop", "website", "site", "brand", "page", "homepage", "business", "landing"],
+    "categories": ["hero", "product-showcase", "social-proof", "conversion", "content"],
+    "tags": []
+  },
+
+  "rules": [
+    {
+      "keywords": ["testimonial", "testimonials", "review", "reviews", "customer feedback", "what customers say"],
+      "categories": ["social-proof"],
+      "tags": ["testimonial", "reviews"]
+    },
+    {
+      "keywords": ["trust", "certified", "certification", "certifications", "guarantee", "secure", "verified"],
+      "categories": ["trust-badges"],
+      "tags": ["trust"]
+    },
+    {
+      "keywords": ["compare", "comparison", "vs.", "versus", "how we compare"],
+      "categories": ["conversion"],
+      "tags": ["comparison"]
+    },
+    {
+      "keywords": ["countdown", "urgency", "limited time", "limited-time", "hurry", "sale ends", "flash sale"],
+      "categories": ["conversion"],
+      "tags": ["urgency"]
+    },
+    {
+      "keywords": ["newsletter", "subscribe", "email signup", "email list", "mailing list"],
+      "categories": ["form-input"],
+      "tags": ["newsletter"]
+    },
+    {
+      "keywords": ["contact", "contact form", "get in touch", "reach us"],
+      "categories": ["form-input"],
+      "tags": ["contact"]
+    },
+    {
+      "keywords": ["video", "watch", "demo video"],
+      "categories": ["media"],
+      "tags": ["video"]
+    },
+    {
+      "keywords": ["ticker", "scrolling", "marquee", "as seen in"],
+      "categories": ["trust-badges", "content"],
+      "tags": ["ticker"]
+    },
+    {
+      "keywords": ["feature", "features", "benefit", "benefits", "why choose", "why buy"],
+      "categories": ["content"],
+      "tags": ["benefits"]
+    },
+    {
+      "keywords": ["tab", "tabs", "faq", "frequently asked"],
+      "categories": ["content"],
+      "tags": ["tabs"]
+    },
+    {
+      "keywords": ["stat", "stats", "statistic", "statistics", "results", "percentage", "numbers"],
+      "categories": ["social-proof"],
+      "tags": ["stats"]
+    },
+    {
+      "keywords": ["collection", "catalog", "browse products", "shop the collection", "product grid"],
+      "categories": ["product-showcase"],
+      "tags": []
+    },
+    {
+      "keywords": ["divider", "separator"],
+      "categories": ["layout-structural"],
+      "tags": []
+    },
+    {
+      "keywords": ["bundle", "upsell", "frequently bought together"],
+      "categories": ["conversion"],
+      "tags": ["bundle"]
+    },
+    {
+      "keywords": ["subscription", "recurring", "subscribe and save"],
+      "categories": ["conversion"],
+      "tags": ["subscription"]
+    },
+    {
+      "keywords": ["award", "as featured", "press", "media coverage"],
+      "categories": ["trust-badges"],
+      "tags": ["awards"]
+    }
+  ]
+}

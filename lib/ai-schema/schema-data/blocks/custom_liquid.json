@@ -1,0 +1,13 @@
+{
+    "id": "custom-liquid",
+    "label": "Custom Liquid",
+    "purpose": "Custom Liquid code block for advanced customization",
+    "category": "misc",
+    "tags": [
+        "custom-code"
+    ],
+    "settings": {
+        "custom_liquid": "liquid"
+    },
+    "_notes": "Custom liquid block allows adding custom Liquid code. Use sparingly and only when needed for custom functionality."
+}

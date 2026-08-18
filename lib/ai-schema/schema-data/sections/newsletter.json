@@ -1,0 +1,42 @@
+{
+    "id": "newsletter",
+    "label": "Email Signup",
+    "purpose": "Newsletter subscription form",
+    "category": "form-input",
+    "tags": [
+        "newsletter"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "button_type": [
+            "arrow",
+            "solid"
+        ],
+        "button_label": "text",
+        "button_style_secondary": [
+            "true",
+            "false"
+        ],
+        "full_width": [
+            "true",
+            "false"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ]
+    },
+    "allowed_blocks": [
+        "heading",
+        "paragraph",
+        "email_form"
+    ]
+}

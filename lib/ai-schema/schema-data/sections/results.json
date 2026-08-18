@@ -1,0 +1,45 @@
+{
+    "id": "results",
+    "label": "Results",
+    "purpose": "Display statistics and results with percentages",
+    "category": "social-proof",
+    "tags": [
+        "stats"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "text": "richtext",
+        "image": "image_picker",
+        "video": "video",
+        "style": [
+            "circle",
+            "number"
+        ],
+        "result_layout": [
+            "horizontal",
+            "vertical"
+        ],
+        "layout": [
+            "results_first",
+            "content_first"
+        ],
+        "enable_animations": [
+            "true",
+            "false"
+        ],
+        "animation_duration": {
+            "type": "number",
+            "min": 100,
+            "max": 1000,
+            "default": 500
+        }
+    },
+    "allowed_blocks": [
+        "row"
+    ]
+}

@@ -1,0 +1,62 @@
+{
+    "id": "email-signup-banner",
+    "label": "Email Signup Banner",
+    "purpose": "Full-width banner with a background image and an email capture form",
+    "category": "conversion",
+    "tags": [
+        "email",
+        "signup",
+        "newsletter"
+    ],
+    "allowed_on": [
+        "index",
+        "password"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "image": "image_picker",
+        "show_background_image": [
+            "true",
+            "false"
+        ],
+        "image_height": [
+            "adapt-image",
+            "small",
+            "medium",
+            "large"
+        ],
+        "desktop_content_position": [
+            "top-left",
+            "top-center",
+            "top-right",
+            "middle-left",
+            "middle-center",
+            "middle-right",
+            "bottom-left",
+            "bottom-center",
+            "bottom-right"
+        ],
+        "desktop_content_alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse"
+        ]
+    },
+    "allowed_blocks": [
+        "heading",
+        "paragraph",
+        "email_form"
+    ],
+    "_notes": "Currently used on the storefront password page in this theme; also commonly placed on the homepage."
+}

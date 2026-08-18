@@ -1,0 +1,52 @@
+{
+    "id": "collapsible-content",
+    "label": "Collapsible Content",
+    "purpose": "Heading/image plus a stack of collapsible (accordion) content rows — commonly used for FAQ pages",
+    "category": "content",
+    "tags": [
+        "expandable",
+        "faq"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "caption": "text",
+        "title": "inline_richtext",
+        "heading_size": [
+            "h3",
+            "h2",
+            "h1",
+            "h0",
+            "custom"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ],
+        "image": "image_picker",
+        "desktop_layout": [
+            "image_first",
+            "image_second"
+        ],
+        "collapse_icon": [
+            "carret",
+            "plus"
+        ]
+    },
+    "allowed_blocks": [
+        "collapsible-row-content"
+    ],
+    "_notes": "Distinct from the existing 'collapsible-row' block/section pairing — this section's real Liquid file (collapsible-content.liquid) references its own 'collapsible-row-content' block type, not 'collapsible-row'."
+}

@@ -1,0 +1,22 @@
+{
+    "id": "rating-stars",
+    "label": "Rating Stars",
+    "purpose": "Display star rating with optional count",
+    "category": "trust-badges",
+    "tags": [
+        "rating",
+        "reviews"
+    ],
+    "settings": {
+        "rating": {
+            "type": "range",
+            "min": 0,
+            "max": 5,
+            "step": 0.5,
+            "default": 5
+        },
+        "rating_count": "text",
+        "show_count": "checkbox"
+    },
+    "_notes": "Rating stars block shows star rating. Use rating for numeric value (0-5), rating_count for text like '(1,234 reviews)'."
+}

@@ -1,0 +1,32 @@
+{
+    "id": "contact-form",
+    "label": "Contact Form",
+    "purpose": "Contact form with customizable fields",
+    "category": "form-input",
+    "tags": [
+        "contact"
+    ],
+    "allowed_on": [
+        "page"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "button_full_width": [
+            "true",
+            "false"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ]
+    },
+    "allowed_blocks": [
+        "field_row",
+        "textarea",
+        "tnc_checkbox"
+    ]
+}

@@ -1,0 +1,20 @@
+{
+    "id": "countdown-timer",
+    "label": "Countdown Timer",
+    "purpose": "Display countdown timer to specific date/time",
+    "category": "conversion",
+    "tags": [
+        "urgency"
+    ],
+    "settings": {
+        "end_date": "text",
+        "end_time": "text",
+        "timer_style": [
+            "boxes",
+            "simple",
+            "circular"
+        ],
+        "show_labels": "checkbox"
+    },
+    "_notes": "Countdown timer block. Set end_date (YYYY-MM-DD format) and end_time (HH:MM format). Good for sales, launches, limited offers."
+}

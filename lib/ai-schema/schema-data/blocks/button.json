@@ -1,0 +1,17 @@
+{
+    "id": "button",
+    "label": "Link Button",
+    "purpose": "Call-to-action button block",
+    "category": "conversion",
+    "tags": [
+        "cta"
+    ],
+    "settings": {
+        "button_label": "text",
+        "link": "url",
+        "button_style_secondary": [
+            "true",
+            "false"
+        ]
+    }
+}

@@ -1,0 +1,21 @@
+{
+    "id": "textarea",
+    "label": "Textarea Field",
+    "purpose": "Multi-line text input field for forms",
+    "category": "form-input",
+    "tags": [],
+    "settings": {
+        "label": "text",
+        "required": [
+            "true",
+            "false"
+        ],
+        "placeholder": "text",
+        "rows": {
+            "type": "range",
+            "min": 3,
+            "max": 10,
+            "default": 5
+        }
+    }
+}

@@ -1,0 +1,39 @@
+{
+    "id": "product_urgency",
+    "label": "Urgency Text",
+    "purpose": "Display time-sensitive messages to create urgency and drive conversions",
+    "category": "conversion",
+    "tags": [
+        "urgency"
+    ],
+    "settings": {
+        "urgency_type": [
+            "visitors",
+            "recent-sales",
+            "custom-text"
+        ],
+        "custom_text": {
+            "type": "richtext",
+            "default": "<p>🔥 12 people are viewing this right now!</p>"
+        },
+        "show_icon": {
+            "type": "checkbox",
+            "default": true
+        },
+        "icon": {
+            "type": "text",
+            "default": "local_fire_department"
+        },
+        "style": [
+            "banner",
+            "pill",
+            "text-only"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "warning"
+        ]
+    },
+    "_notes": "Creates FOMO and urgency. Shows messages like '12 people viewing', 'Only 3 left', '5 sold in last hour'. Can use dynamic counters or custom text. Richtext MUST be wrapped in <p> tags."
+}

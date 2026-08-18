@@ -1,0 +1,26 @@
+{
+    "id": "buttons",
+    "label": "Buttons",
+    "purpose": "One or two CTA buttons with customizable style",
+    "category": "conversion",
+    "tags": [
+        "cta"
+    ],
+    "settings": {
+        "button_label_1": "text",
+        "button_link_1": "url",
+        "button_style_1": [
+            "primary",
+            "secondary",
+            "outline"
+        ],
+        "button_label_2": "text",
+        "button_link_2": "url",
+        "button_style_2": [
+            "primary",
+            "secondary",
+            "outline"
+        ]
+    },
+    "_notes": "Buttons block allows up to 2 buttons side by side. Each button has label, link, and style options."
+}

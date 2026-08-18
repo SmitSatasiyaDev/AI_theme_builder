@@ -1,0 +1,47 @@
+{
+    "id": "collapsible-row",
+    "label": "Collapsible Row",
+    "purpose": "Accordion/collapsible content section with expandable rows",
+    "category": "content",
+    "tags": [
+        "expandable",
+        "faq"
+    ],
+    "settings": {
+        "heading": "text",
+        "content": "richtext",
+        "icon": [
+            "none",
+            "package",
+            "info",
+            "star",
+            "checkmark",
+            "return",
+            "truck",
+            "question"
+        ],
+        "open": {
+            "type": "checkbox",
+            "default": false
+        },
+        "heading_size": {
+            "type": "range",
+            "min": 12,
+            "max": 24,
+            "default": 16
+        },
+        "margin_top": {
+            "type": "range",
+            "min": 0,
+            "max": 60,
+            "default": 15
+        },
+        "margin_bottom": {
+            "type": "range",
+            "min": 0,
+            "max": 60,
+            "default": 15
+        }
+    },
+    "_notes": "Creates expandable/collapsible accordion rows. Great for FAQs, product details, shipping info. Each row has heading (text), content (richtext with <p> tags), icon, and open state. Block name is 'collapsible-row' NOT 'accordion'. Does NOT use nested blocks - content goes directly in settings."
+}

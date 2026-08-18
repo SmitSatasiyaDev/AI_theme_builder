@@ -1,0 +1,44 @@
+{
+    "id": "product_price",
+    "label": "Product Price",
+    "purpose": "Display product price, compare at price, and sale price on product page",
+    "category": "product-detail",
+    "tags": [],
+    "settings": {
+        "price_layout": [
+            "price-first",
+            "price-first-vertical",
+            "compare-price-first",
+            "compare-price-first-vertical"
+        ],
+        "price_color": [
+            "background-1",
+            "background-2",
+            "accent-1",
+            "accent-2",
+            "outline-button",
+            "text"
+        ],
+        "compare_price_color": [
+            "background-1",
+            "background-2",
+            "accent-1",
+            "accent-2",
+            "outline-button",
+            "text"
+        ],
+        "regular_price_size": {
+            "type": "range",
+            "min": 12,
+            "max": 32,
+            "default": 25
+        },
+        "sale_price_size": {
+            "type": "range",
+            "min": 12,
+            "max": 32,
+            "default": 20
+        }
+    },
+    "_notes": "Essential block for product pages. Shows current price, original price if on sale, and discount amount. Usually placed after title."
+}

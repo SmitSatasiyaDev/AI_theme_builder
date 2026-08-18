@@ -1,0 +1,50 @@
+{
+    "id": "image-with-text",
+    "label": "Image with Text",
+    "purpose": "Image with accompanying text content",
+    "category": "content",
+    "tags": [
+        "visual"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "image": "image_picker",
+        "video": "video",
+        "height": [
+            "adapt",
+            "small",
+            "medium",
+            "large"
+        ],
+        "layout": [
+            "image_first",
+            "text_first"
+        ],
+        "desktop_content_position": [
+            "top",
+            "middle",
+            "bottom"
+        ],
+        "desktop_content_alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "mobile_content_alignment": [
+            "left",
+            "center",
+            "right"
+        ]
+    },
+    "allowed_blocks": [
+        "heading",
+        "text",
+        "button",
+        "caption",
+        "image"
+    ]
+}

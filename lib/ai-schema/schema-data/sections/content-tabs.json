@@ -1,0 +1,31 @@
+{
+    "id": "content-tabs",
+    "label": "Content Tabs",
+    "purpose": "Tabbed content with each tab containing rich content including images, text, videos",
+    "category": "content",
+    "tags": [
+        "tabs"
+    ],
+    "allowed_on": [
+        "index",
+        "page",
+        "product"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "tabs_style": [
+            "default",
+            "pills",
+            "underline"
+        ],
+        "tab_alignment": [
+            "left",
+            "center",
+            "right"
+        ]
+    },
+    "allowed_blocks": [
+        "tab"
+    ],
+    "_notes": "Content tabs section creates tabbed interface. Each 'tab' block represents one tab with button label, icon, and rich content area (heading, text, image, video, button)."
+}

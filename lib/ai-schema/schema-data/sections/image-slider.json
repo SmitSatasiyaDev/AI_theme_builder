@@ -1,0 +1,63 @@
+{
+    "id": "image-slider",
+    "label": "Image/Video Slider",
+    "purpose": "Slider gallery of images and/or videos",
+    "category": "media",
+    "tags": [
+        "slider",
+        "gallery"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "image_ratio": [
+            "adapt",
+            "portrait",
+            "square",
+            "landscape"
+        ],
+        "title": "inline_richtext",
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ],
+        "type": [
+            "slide",
+            "loop",
+            "fade"
+        ],
+        "autoplay": [
+            "true",
+            "false"
+        ],
+        "slides_desktop": {
+            "type": "range",
+            "min": 1,
+            "max": 6,
+            "default": 3
+        },
+        "desktop_page_width": [
+            "page-width--narrow",
+            "normal",
+            "desktop-full-page",
+            "desktop-full-page-no-padding"
+        ]
+    },
+    "allowed_blocks": [
+        "image_slide",
+        "video_slide"
+    ],
+    "_notes": "Distinct from the existing 'slideshow' section (a full-bleed hero carousel using 'slide' blocks) — this is a smaller media gallery/slider using its own 'image_slide'/'video_slide' block types."
+}

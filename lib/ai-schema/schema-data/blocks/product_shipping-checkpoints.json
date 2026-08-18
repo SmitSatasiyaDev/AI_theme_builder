@@ -1,0 +1,42 @@
+{
+    "id": "product_shipping-checkpoints",
+    "label": "Shipping Checkpoints",
+    "purpose": "Display shipping benefits and trust signals with icons",
+    "category": "trust-badges",
+    "tags": [
+        "shipping"
+    ],
+    "settings": {
+        "icon_1": {
+            "type": "text",
+            "default": "local_shipping"
+        },
+        "text_1": {
+            "type": "richtext",
+            "default": "<p>Free shipping on orders over $50</p>"
+        },
+        "icon_2": {
+            "type": "text",
+            "default": "verified"
+        },
+        "text_2": {
+            "type": "richtext",
+            "default": "<p>Secure checkout</p>"
+        },
+        "icon_3": {
+            "type": "text",
+            "default": "autorenew"
+        },
+        "text_3": {
+            "type": "richtext",
+            "default": "<p>Easy returns within 30 days</p>"
+        },
+        "icon_size": {
+            "type": "range",
+            "min": 16,
+            "max": 40,
+            "default": 24
+        }
+    },
+    "_notes": "Shows trust badges like free shipping, secure checkout, easy returns. Each checkpoint has icon and text. Great for building trust and reducing cart abandonment. All richtext fields MUST be wrapped in <p> tags."
+}

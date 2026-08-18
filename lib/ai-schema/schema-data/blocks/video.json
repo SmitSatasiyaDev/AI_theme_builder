@@ -1,0 +1,15 @@
+{
+    "id": "video",
+    "label": "Video",
+    "purpose": "Embed video content with cover image",
+    "category": "media",
+    "tags": [],
+    "settings": {
+        "cover_image": "image_picker",
+        "video_url": "video_url",
+        "video": "video",
+        "description": "text",
+        "loop": "checkbox"
+    },
+    "_notes": "Video block can use either video_url (YouTube/Vimeo) or video (uploaded video file). Cover image shows before play. Description is for accessibility."
+}

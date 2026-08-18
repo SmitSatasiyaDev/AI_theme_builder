@@ -1,0 +1,26 @@
+{
+    "id": "column",
+    "label": "Column",
+    "purpose": "Testimonial, icon bar, or grid column block",
+    "category": "social-proof",
+    "tags": [
+        "testimonial",
+        "benefits"
+    ],
+    "_notes": "IMPORTANT: The 'text' field is richtext and MUST be wrapped with <p> tags. Example: '<p>Your text here</p>'. Also used in icon-bar section with icon, title, and text fields.",
+    "settings": {
+        "title": "text",
+        "text": "richtext",
+        "author": "text",
+        "image": "image_picker",
+        "icon": "text",
+        "filled_icon": "checkbox",
+        "star_rating": {
+            "type": "range",
+            "min": 1,
+            "max": 5,
+            "step": 1,
+            "default": 5
+        }
+    }
+}

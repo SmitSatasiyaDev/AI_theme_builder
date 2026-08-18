@@ -1,0 +1,40 @@
+{
+    "id": "product_inventory",
+    "label": "Inventory/Stock Status",
+    "purpose": "Display stock level and create urgency with low stock messages",
+    "category": "conversion",
+    "tags": [
+        "urgency",
+        "stock"
+    ],
+    "settings": {
+        "style": [
+            "progress-bar",
+            "text-only",
+            "icon-text"
+        ],
+        "show_stock_count": {
+            "type": "checkbox",
+            "default": true
+        },
+        "low_stock_threshold": {
+            "type": "range",
+            "min": 1,
+            "max": 50,
+            "default": 10
+        },
+        "text_in_stock": {
+            "type": "text",
+            "default": "In stock, ready to ship"
+        },
+        "text_low_stock": {
+            "type": "text",
+            "default": "Only [count] left in stock!"
+        },
+        "text_out_of_stock": {
+            "type": "text",
+            "default": "Out of stock"
+        }
+    },
+    "_notes": "Creates urgency and FOMO (fear of missing out). Shows real-time inventory levels. Use low stock threshold to trigger urgency messages. Dynamic variable [count] shows actual stock number."
+}

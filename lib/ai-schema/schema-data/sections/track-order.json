@@ -1,0 +1,36 @@
+{
+    "id": "track-order",
+    "label": "Track Order",
+    "purpose": "Order-tracking form where a customer enters a tracking number",
+    "category": "form-input",
+    "tags": [
+        "order-tracking"
+    ],
+    "allowed_on": [
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "title": "inline_richtext",
+        "text": "richtext",
+        "input_label": "text",
+        "button_label": "text",
+        "button_full_width": [
+            "true",
+            "false"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ]
+    },
+    "_notes": "Renders Shopify's order-status lookup form directly (no blocks) — the tracking-number submission itself is handled by theme JS, not configurable via settings."
+}

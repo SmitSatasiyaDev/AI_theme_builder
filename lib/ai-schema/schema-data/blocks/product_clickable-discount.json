@@ -1,0 +1,35 @@
+{
+    "id": "product_clickable-discount",
+    "label": "Clickable Discount Badge",
+    "purpose": "Display discount code badge that auto-applies when clicked",
+    "category": "conversion",
+    "tags": [
+        "discount"
+    ],
+    "settings": {
+        "discount_code": {
+            "type": "text",
+            "default": "SAVE10"
+        },
+        "badge_text": {
+            "type": "text",
+            "default": "Save 10% - Click to Apply"
+        },
+        "badge_style": [
+            "pill",
+            "rectangle",
+            "banner"
+        ],
+        "badge_color": [
+            "accent-1",
+            "accent-2",
+            "success",
+            "warning"
+        ],
+        "show_icon": {
+            "type": "checkbox",
+            "default": true
+        }
+    },
+    "_notes": "Interactive discount badge. When clicked, automatically applies discount code at checkout. Great for promotions and increasing conversion. Requires discount code to be created in Shopify admin."
+}

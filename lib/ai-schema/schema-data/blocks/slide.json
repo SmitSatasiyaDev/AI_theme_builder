@@ -1,0 +1,33 @@
+{
+    "id": "slide",
+    "label": "Slide",
+    "purpose": "Individual slide in a slideshow with image and text",
+    "category": "hero",
+    "tags": [],
+    "_notes": "The 'heading' field is plain text and should NOT be wrapped with tags. The 'text' field is richtext and MUST be wrapped with <p> tags.",
+    "settings": {
+        "image": "image_picker",
+        "heading": "text",
+        "subheading": "text",
+        "text": "richtext",
+        "button_label": "text",
+        "button_link": "url",
+        "text_color": "color",
+        "content_position": [
+            "top-left",
+            "top-center",
+            "top-right",
+            "center-left",
+            "center",
+            "center-right",
+            "bottom-left",
+            "bottom-center",
+            "bottom-right"
+        ]
+    },
+    "_image_generation": {
+        "enabled": true,
+        "field_name": "image",
+        "prompt_template": "Hero slide image for {heading}"
+    }
+}

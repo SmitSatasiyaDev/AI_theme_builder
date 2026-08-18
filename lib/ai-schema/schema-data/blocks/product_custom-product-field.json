@@ -1,0 +1,40 @@
+{
+    "id": "product_custom-product-field",
+    "label": "Custom Product Field",
+    "purpose": "Add custom text input for personalization (engraving, gift message, etc.)",
+    "category": "product-detail",
+    "tags": [
+        "personalization"
+    ],
+    "settings": {
+        "field_type": [
+            "text",
+            "textarea",
+            "checkbox",
+            "dropdown"
+        ],
+        "label": {
+            "type": "text",
+            "default": "Personalization (optional)"
+        },
+        "placeholder": {
+            "type": "text",
+            "default": "Enter your text here"
+        },
+        "required": {
+            "type": "checkbox",
+            "default": false
+        },
+        "max_length": {
+            "type": "range",
+            "min": 10,
+            "max": 500,
+            "default": 100
+        },
+        "help_text": {
+            "type": "text",
+            "default": ""
+        }
+    },
+    "_notes": "For customizable products. Allows customers to add personalization text (names, messages). Data saved with order line items. Great for gifts, engraving, custom prints."
+}

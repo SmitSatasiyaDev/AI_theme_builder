@@ -1,0 +1,16 @@
+{
+    "id": "accordion",
+    "label": "Accordion",
+    "purpose": "Expandable/collapsible content section",
+    "category": "content",
+    "tags": [
+        "expandable"
+    ],
+    "_notes": "The 'content' field MUST be wrapped with <p> tags. Example: '<p>Expandable content here</p>'. Good for FAQs.",
+    "settings": {
+        "heading": "text",
+        "content": "richtext",
+        "open_by_default": "checkbox",
+        "icon": "text"
+    }
+}

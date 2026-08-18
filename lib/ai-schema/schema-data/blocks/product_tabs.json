@@ -1,0 +1,81 @@
+{
+    "id": "product_tabs",
+    "label": "Product Tabs",
+    "purpose": "Tabbed content sections for product information (descriptions, specs, reviews, etc)",
+    "category": "product-detail",
+    "tags": [
+        "tabs"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "tab_text_size": {
+            "type": "range",
+            "min": 8,
+            "max": 24,
+            "default": 16
+        },
+        "tab_text_size_mobile": {
+            "type": "range",
+            "min": 8,
+            "max": 20,
+            "default": 14
+        },
+        "button_alignment": [
+            "left",
+            "center"
+        ],
+        "divider_thickness": {
+            "type": "range",
+            "min": 1,
+            "max": 3,
+            "default": 2
+        },
+        "active_indicator_thickness": {
+            "type": "range",
+            "min": 1,
+            "max": 5,
+            "default": 2
+        },
+        "content_size": {
+            "type": "range",
+            "min": 12,
+            "max": 20,
+            "default": 16
+        },
+        "margin_top": {
+            "type": "range",
+            "min": 0,
+            "max": 60,
+            "default": 30
+        },
+        "margin_bottom": {
+            "type": "range",
+            "min": 0,
+            "max": 60,
+            "default": 30
+        }
+    },
+    "blocks": {
+        "tab_content": {
+            "name": "Tab",
+            "settings": {
+                "title": "text",
+                "icon": [
+                    "none",
+                    "package",
+                    "info",
+                    "star",
+                    "checkmark",
+                    "return",
+                    "truck"
+                ],
+                "content": "richtext"
+            }
+        }
+    },
+    "_notes": "Creates tabbed interface for organizing product information. Use for ingredients, specs, shipping info, reviews, FAQs. Each tab needs title, optional icon, and richtext content. Block name is 'product_tabs' NOT 'tab'."
+}

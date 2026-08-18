@@ -1,0 +1,40 @@
+{
+    "id": "product_sticky-atc",
+    "label": "Sticky Add to Cart",
+    "purpose": "Floating add to cart bar that appears when scrolling past buy buttons",
+    "category": "conversion",
+    "tags": [
+        "cta"
+    ],
+    "settings": {
+        "show_on_mobile": {
+            "type": "checkbox",
+            "default": true
+        },
+        "show_on_desktop": {
+            "type": "checkbox",
+            "default": false
+        },
+        "show_product_image": {
+            "type": "checkbox",
+            "default": true
+        },
+        "show_price": {
+            "type": "checkbox",
+            "default": true
+        },
+        "show_variant_selector": {
+            "type": "checkbox",
+            "default": true
+        },
+        "position": [
+            "bottom",
+            "top"
+        ],
+        "button_label": {
+            "type": "text",
+            "default": "Add to cart"
+        }
+    },
+    "_notes": "Sticky bar that follows user scroll. Keeps buy button visible at all times. Improves conversion on mobile. Shows mini version of product info and buy button. Appears after scrolling past main buy buttons."
+}

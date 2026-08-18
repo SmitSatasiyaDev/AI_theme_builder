@@ -1,0 +1,50 @@
+{
+    "id": "product_title",
+    "label": "Product Title",
+    "purpose": "Display product title/name on product page",
+    "category": "product-detail",
+    "tags": [],
+    "settings": {
+        "uppercase_title": {
+            "type": "checkbox",
+            "default": false
+        },
+        "desktop_size": {
+            "type": "range",
+            "min": 24,
+            "max": 60,
+            "default": 39
+        },
+        "alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "mobile_size": {
+            "type": "range",
+            "min": 20,
+            "max": 50,
+            "default": 28
+        },
+        "mobile_alignment": [
+            "mobile-left",
+            "mobile-center",
+            "mobile-right"
+        ],
+        "margin_top": {
+            "type": "range",
+            "min": 0,
+            "max": 45,
+            "step": 3,
+            "default": 15
+        },
+        "margin_bottom": {
+            "type": "range",
+            "min": 0,
+            "max": 45,
+            "step": 3,
+            "default": 15
+        }
+    },
+    "_notes": "Product title is essential on every product page. Typically placed near the top of the product information section. IMPORTANT: margin_top and margin_bottom must be multiples of 3 (step: 3). Valid values: 0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45."
+}

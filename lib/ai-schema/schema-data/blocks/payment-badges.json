@@ -1,0 +1,18 @@
+{
+    "id": "payment-badges",
+    "label": "Payment Badges",
+    "purpose": "Display accepted payment method icons",
+    "category": "trust-badges",
+    "tags": [
+        "payment"
+    ],
+    "settings": {
+        "show_payment_icons": "checkbox",
+        "payment_icon_style": [
+            "color",
+            "grayscale",
+            "outline"
+        ]
+    },
+    "_notes": "Payment badges block shows accepted payment method icons (Visa, Mastercard, PayPal, etc.). Auto-populated from store settings."
+}

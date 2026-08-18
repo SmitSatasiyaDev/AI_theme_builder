@@ -1,0 +1,44 @@
+{
+    "id": "icon-bar",
+    "label": "Icon Bar",
+    "purpose": "Display icons with text in a horizontal row for features or benefits",
+    "category": "content",
+    "tags": [
+        "benefits",
+        "icons"
+    ],
+    "allowed_on": [
+        "index",
+        "page",
+        "product"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "text": "richtext",
+        "title_highlight_1_color": "color_picker",
+        "columns_desktop": {
+            "type": "range",
+            "min": 2,
+            "max": 6,
+            "default": 4
+        },
+        "icon_size": [
+            "small",
+            "medium",
+            "large"
+        ],
+        "alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "icon_layout": [
+            "horizontal",
+            "vertical"
+        ]
+    },
+    "allowed_blocks": [
+        "column"
+    ],
+    "_notes": "Icon bar displays icons with headings and text. Each 'column' block represents one icon item. Use Material Symbols icons (icon names like 'check_circle', 'local_shipping', 'verified_user'). Title highlight color setting controls the color of the icon headings."
+}

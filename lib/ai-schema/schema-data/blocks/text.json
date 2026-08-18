@@ -1,0 +1,11 @@
+{
+    "id": "text",
+    "label": "Text",
+    "purpose": "Rich text content block",
+    "category": "content",
+    "tags": [],
+    "_notes": "The 'text' field MUST be wrapped with <p> tags. Example: '<p>Your text content</p>'. When used in sections with multiple text blocks (like horizontal-ticker, testimonials), EACH block MUST have UNIQUE content - never repeat the same text.",
+    "settings": {
+        "text": "richtext"
+    }
+}

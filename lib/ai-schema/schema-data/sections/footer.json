@@ -1,0 +1,11 @@
+{
+    "id": "footer",
+    "label": "Footer",
+    "purpose": "Site-wide footer with navigation links and a newsletter signup",
+    "category": "layout-structural",
+    "tags": ["footer"],
+    "allowed_on": ["footer-group"],
+    "settings": {},
+    "allowed_blocks": ["link_list", "email_signup"],
+    "_notes": "This section has NO AI-controlled settings — color_scheme, background patterns, spacing, and payment-icon toggles are merchant styling choices and are always preserved from the existing footer, never generated. Only the blocks (link list headings, newsletter copy) are regenerated. Do not output any section-level settings keys."
+}

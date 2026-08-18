@@ -1,0 +1,40 @@
+{
+    "id": "product_buy-buttons",
+    "label": "Buy Buttons",
+    "purpose": "Add to cart and buy now buttons with optional quantity selector",
+    "category": "product-detail",
+    "tags": [
+        "cta",
+        "add-to-cart"
+    ],
+    "settings": {
+        "show_add_to_cart": {
+            "type": "checkbox",
+            "default": true
+        },
+        "add_to_cart_label": {
+            "type": "text",
+            "default": "Add to cart"
+        },
+        "show_dynamic_checkout": {
+            "type": "checkbox",
+            "default": true
+        },
+        "show_quantity_selector": {
+            "type": "checkbox",
+            "default": false
+        },
+        "button_style": [
+            "solid",
+            "outline"
+        ],
+        "full_width": {
+            "type": "checkbox",
+            "default": true
+        }
+    },
+    "allowed_blocks": [
+        "product_quantity_selector"
+    ],
+    "_notes": "Essential block. Shows Add to Cart button and optionally Buy Now/Express Checkout buttons (Apple Pay, Google Pay, PayPal). Can include inline quantity selector."
+}

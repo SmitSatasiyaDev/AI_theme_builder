@@ -1,0 +1,62 @@
+{
+    "id": "facebook-testimonials",
+    "label": "Facebook Testimonials",
+    "purpose": "Display a slider of Facebook-style customer testimonial posts",
+    "category": "social-proof",
+    "tags": [
+        "facebook",
+        "testimonial",
+        "reviews"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "title": "inline_richtext",
+        "heading_size": [
+            "h3",
+            "h2",
+            "h1",
+            "h0",
+            "custom"
+        ],
+        "text": "richtext",
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ],
+        "type": [
+            "slide",
+            "loop"
+        ],
+        "autoplay": [
+            "true",
+            "false"
+        ],
+        "columns_desktop": {
+            "type": "range",
+            "min": 1,
+            "max": 5,
+            "default": 3
+        },
+        "stretch_cards": [
+            "true",
+            "false"
+        ]
+    },
+    "allowed_blocks": [
+        "column"
+    ],
+    "_notes": "Each Facebook post is a 'column' block (reused from other sections — real Liquid schema defines no per-block settings of its own for this section, content comes from the shared 'column' block)."
+}

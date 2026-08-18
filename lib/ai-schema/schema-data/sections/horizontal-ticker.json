@@ -1,0 +1,37 @@
+{
+    "id": "horizontal-ticker",
+    "label": "Horizontal Ticker",
+    "purpose": "Scrolling content ticker that moves horizontally with text, images, or videos",
+    "category": "trust-badges",
+    "tags": [
+        "ticker",
+        "certifications"
+    ],
+    "allowed_on": [
+        "index",
+        "page",
+        "product"
+    ],
+    "settings": {
+        "speed": {
+            "type": "range",
+            "min": 1,
+            "max": 5,
+            "default": 3
+        },
+        "direction": [
+            "normal",
+            "reverse"
+        ],
+        "pause_on_hover": [
+            true,
+            false
+        ]
+    },
+    "allowed_blocks": [
+        "text",
+        "image",
+        "video"
+    ],
+    "_notes": "Horizontal ticker scrolls content horizontally. Can include text, images, or videos. Great for marquee-style announcements or featured content. CRITICAL: Add 8-10 blocks minimum for smooth scrolling. EACH text block MUST have UNIQUE, DIFFERENT content - DO NOT repeat the same text multiple times. Examples: 'Free Shipping', 'Money-Back Guarantee', 'Trusted by 10,000+ customers', 'Secure Checkout', '24/7 Support', 'Made with Premium Materials', 'Eco-Friendly Packaging', 'Fast Delivery'."
+}

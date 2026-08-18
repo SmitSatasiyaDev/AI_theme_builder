@@ -1,0 +1,38 @@
+{
+    "id": "product_quantity-gifts",
+    "label": "Gifts on Quantity",
+    "purpose": "Show free gift products unlocked at certain quantity thresholds",
+    "category": "conversion",
+    "tags": [
+        "upsell"
+    ],
+    "settings": {
+        "border_thickness": {
+            "type": "range",
+            "min": 0,
+            "max": 5,
+            "default": 2
+        },
+        "border_style": [
+            "solid",
+            "dashed"
+        ],
+        "corner_radius": {
+            "type": "range",
+            "min": 0,
+            "max": 30,
+            "default": 10
+        },
+        "locked_background": [
+            "solid",
+            "stripes"
+        ],
+        "locked_image_opacity": {
+            "type": "range",
+            "min": 0,
+            "max": 30,
+            "default": 0
+        }
+    },
+    "_notes": "Shows gift products that unlock at quantity thresholds (e.g., Buy 2 get free sample, Buy 3 get free product). Gifts auto-add to cart. Gift products must have 'collection-hidden' and 'search-hidden' tags."
+}

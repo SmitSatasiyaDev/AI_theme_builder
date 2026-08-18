@@ -1,0 +1,12 @@
+{
+    "id": "product",
+    "label": "Product",
+    "purpose": "Feature a product with optional secondary image on hover",
+    "category": "product-showcase",
+    "tags": [],
+    "settings": {
+        "product": "product_picker",
+        "second_image": "checkbox"
+    },
+    "_notes": "Product block for collage section. Select a product to feature. Enable second_image to show alternate image on hover."
+}

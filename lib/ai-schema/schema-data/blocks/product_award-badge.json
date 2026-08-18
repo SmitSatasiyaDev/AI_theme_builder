@@ -1,0 +1,43 @@
+{
+    "id": "product_award-badge",
+    "label": "Award Badge",
+    "purpose": "Display trust badges, awards, certifications above the fold",
+    "category": "trust-badges",
+    "tags": [
+        "awards",
+        "certifications"
+    ],
+    "settings": {
+        "badge_text": {
+            "type": "text",
+            "default": "Best Seller"
+        },
+        "badge_style": [
+            "ribbon",
+            "circle",
+            "shield",
+            "banner"
+        ],
+        "badge_color": [
+            "gold",
+            "silver",
+            "bronze",
+            "accent-1",
+            "accent-2"
+        ],
+        "position": [
+            "top-left",
+            "top-right",
+            "top-center"
+        ],
+        "show_icon": {
+            "type": "checkbox",
+            "default": true
+        },
+        "icon": {
+            "type": "text",
+            "default": "verified"
+        }
+    },
+    "_notes": "Builds trust and credibility. Shows awards like 'Best Seller', 'Editor's Choice', '#1 Rated', certifications. Placed prominently at top of product page. Great for premium/luxury products."
+}

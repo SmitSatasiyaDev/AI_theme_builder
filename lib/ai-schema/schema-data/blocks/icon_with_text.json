@@ -1,0 +1,18 @@
+{
+    "id": "icon-with-text",
+    "label": "Icon with Text",
+    "purpose": "Display icon with heading and description text",
+    "category": "content",
+    "tags": [
+        "benefits",
+        "icons"
+    ],
+    "_notes": "The 'text' field MUST be wrapped with <p> tags. Example: '<p>Description text</p>'. Use icon field for Material Symbols icon names.",
+    "settings": {
+        "icon": "text",
+        "filled_icon": "checkbox",
+        "custom_icon": "image_picker",
+        "title": "text",
+        "text": "richtext"
+    }
+}

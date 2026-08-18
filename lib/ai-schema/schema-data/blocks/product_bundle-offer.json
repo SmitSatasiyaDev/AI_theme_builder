@@ -1,0 +1,41 @@
+{
+    "id": "product_bundle-offer",
+    "label": "Bundle Offer",
+    "purpose": "Frequently bought together / bundle products section",
+    "category": "conversion",
+    "tags": [
+        "bundle",
+        "upsell"
+    ],
+    "settings": {
+        "heading": {
+            "type": "text",
+            "default": "Frequently Bought Together"
+        },
+        "bundle_discount": {
+            "type": "range",
+            "min": 0,
+            "max": 50,
+            "default": 10
+        },
+        "max_products": {
+            "type": "range",
+            "min": 2,
+            "max": 5,
+            "default": 3
+        },
+        "show_checkboxes": {
+            "type": "checkbox",
+            "default": true
+        },
+        "button_label": {
+            "type": "text",
+            "default": "Add bundle to cart"
+        },
+        "product_selection": [
+            "automatic",
+            "manual"
+        ]
+    },
+    "_notes": "Shows related products as a bundle with discount. 'Buy this + that = Save 10%'. Increases average order value. Can auto-select related products or manually choose. All products add to cart together."
+}

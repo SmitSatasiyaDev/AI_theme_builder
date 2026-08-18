@@ -1,0 +1,51 @@
+{
+    "id": "shoppable-image",
+    "label": "Shoppable Image",
+    "purpose": "A large lifestyle image with clickable product hotspots",
+    "category": "product-showcase",
+    "tags": [
+        "shoppable",
+        "hotspot"
+    ],
+    "allowed_on": [
+        "product"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "title": "inline_richtext",
+        "text": "richtext",
+        "image": "image_picker",
+        "desktop_content_position": [
+            "top",
+            "right",
+            "bottom",
+            "left"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse"
+        ],
+        "hotspots_style": [
+            "plus",
+            "minimal"
+        ],
+        "hotspots_color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse"
+        ]
+    },
+    "allowed_blocks": [
+        "hotspot"
+    ],
+    "_notes": "Each clickable point on the image is a 'hotspot' block, positioned via its own offset_x/offset_y settings (percentage of image width/height)."
+}

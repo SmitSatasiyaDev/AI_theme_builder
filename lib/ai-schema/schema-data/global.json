@@ -1,0 +1,33 @@
+{
+  "type": "global",
+  "description": "Global design tokens and brand configuration",
+  "settings": {
+    "colors_solid_button_labels": "color",
+    "colors_accent_1": "color",
+    "colors_accent_2": "color",
+    "colors_text": "color",
+    "colors_background_1": "color",
+    "colors_background_2": "color",
+    "page_width": {
+      "type": "range",
+      "min": 1000,
+      "max": 1600,
+      "step": 100,
+      "default": 1200
+    },
+    "spacing_sections": {
+      "type": "range",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "default": 36
+    },
+    "buttons_border_thickness": {
+      "type": "range",
+      "min": 0,
+      "max": 12,
+      "step": 1,
+      "default": 1
+    }
+  }
+}

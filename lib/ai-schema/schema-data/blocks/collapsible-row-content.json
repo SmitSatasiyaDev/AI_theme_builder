@@ -1,0 +1,20 @@
+{
+    "id": "collapsible-row-content",
+    "label": "Collapsible Row",
+    "purpose": "An individual expandable row within a Collapsible Content section",
+    "category": "content",
+    "tags": [
+        "expandable",
+        "faq"
+    ],
+    "settings": {
+        "open": [
+            "true",
+            "false"
+        ],
+        "heading": "text",
+        "icon": "text",
+        "row_content": "richtext"
+    },
+    "_notes": "Distinct from the existing 'collapsible-row' block (a different real Liquid file, blocks/collapsible-row.liquid) — this is blocks/collapsible-row-content.liquid, used specifically inside the collapsible-content section. `icon` is a Material Symbols icon name (free text), not an enum. Real schema also supports pulling content from a linked Shopify page (a `page` setting) — omitted here since Phase 6's validator has no hallucination guard for that reference type yet (only product_picker/collection are covered); representing it now would mean either an unprotected reference field or expanding Phase 6 validation, both out of scope for this phase."
+}

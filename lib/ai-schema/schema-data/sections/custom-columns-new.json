@@ -1,0 +1,60 @@
+{
+    "id": "custom-columns-new",
+    "label": "Custom Columns V2",
+    "purpose": "Flexible multi-column layout section for arbitrary content blocks",
+    "category": "layout-structural",
+    "tags": [
+        "columns",
+        "layout"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ],
+        "desktop_page_width": [
+            "page-width--narrow",
+            "normal",
+            "desktop-full-page",
+            "desktop-full-page-no-padding",
+            "custom"
+        ],
+        "column_gap_desktop": {
+            "type": "range",
+            "min": 0,
+            "max": 100,
+            "unit": "px",
+            "default": 40
+        },
+        "row_gap_desktop": {
+            "type": "range",
+            "min": 0,
+            "max": 100,
+            "unit": "px",
+            "default": 40
+        },
+        "desktop_vertical_alignment": [
+            "flex-start",
+            "center",
+            "flex-end"
+        ]
+    },
+    "allowed_blocks": [
+        "column"
+    ],
+    "_notes": "Newer variant of the existing 'custom-columns' section (real Liquid file custom-columns-new.liquid, distinct from custom-columns.liquid) — same layout-container idea, different real settings/defaults, so kept as a separate schema rather than merged."
+}

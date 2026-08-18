@@ -1,0 +1,40 @@
+{
+    "id": "comparison-table",
+    "label": "Comparison Table",
+    "purpose": "Product comparison table with features",
+    "category": "conversion",
+    "tags": [
+        "comparison",
+        "benefits"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "text": "richtext",
+        "style": [
+            "classic",
+            "centered",
+            "minimal"
+        ],
+        "layout": [
+            "table_first",
+            "content_first"
+        ],
+        "logo": "image_picker",
+        "us_label": "text",
+        "others_logo": "image_picker",
+        "others_label": "text",
+        "number_of_competitors": [
+            "1",
+            "2",
+            "3"
+        ]
+    },
+    "allowed_blocks": [
+        "row"
+    ]
+}

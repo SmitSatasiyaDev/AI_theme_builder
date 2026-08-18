@@ -1,0 +1,17 @@
+{
+    "id": "tnc_checkbox",
+    "label": "Terms & Conditions Checkbox",
+    "purpose": "Checkbox for accepting terms and conditions",
+    "category": "form-input",
+    "tags": [],
+    "settings": {
+        "label": "richtext",
+        "required": [
+            "true",
+            "false"
+        ],
+        "link_text": "text",
+        "link_url": "url"
+    },
+    "_notes": "Label should include a link to terms and conditions page"
+}

@@ -1,0 +1,43 @@
+{
+    "id": "product_estimated-shipping",
+    "label": "Estimated Shipping",
+    "purpose": "Show estimated delivery date and shipping calculator",
+    "category": "product-detail",
+    "tags": [
+        "shipping",
+        "trust"
+    ],
+    "settings": {
+        "show_date_estimate": {
+            "type": "checkbox",
+            "default": true
+        },
+        "processing_days": {
+            "type": "range",
+            "min": 0,
+            "max": 10,
+            "default": 2
+        },
+        "shipping_days_min": {
+            "type": "range",
+            "min": 1,
+            "max": 30,
+            "default": 3
+        },
+        "shipping_days_max": {
+            "type": "range",
+            "min": 1,
+            "max": 30,
+            "default": 7
+        },
+        "show_zip_calculator": {
+            "type": "checkbox",
+            "default": false
+        },
+        "icon": {
+            "type": "text",
+            "default": "local_shipping"
+        }
+    },
+    "_notes": "Displays expected delivery date range (e.g., 'Arrives by Dec 25-28'). Can include ZIP code calculator for more accurate estimates. Helps set customer expectations and reduce support queries."
+}

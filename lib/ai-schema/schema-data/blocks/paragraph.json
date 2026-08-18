@@ -1,0 +1,11 @@
+{
+    "id": "paragraph",
+    "label": "Paragraph",
+    "purpose": "Rich text paragraph block",
+    "category": "content",
+    "tags": [],
+    "_notes": "The 'text' field MUST be wrapped with <p> tags. Example: '<p>Your paragraph text here</p>'",
+    "settings": {
+        "text": "richtext"
+    }
+}

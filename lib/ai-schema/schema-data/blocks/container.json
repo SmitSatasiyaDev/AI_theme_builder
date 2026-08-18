@@ -1,0 +1,39 @@
+{
+    "id": "container",
+    "label": "Container",
+    "purpose": "A layout box that groups nested content blocks with configurable direction, background, and border styling",
+    "category": "layout-structural",
+    "tags": [
+        "layout",
+        "container"
+    ],
+    "settings": {
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "desktop_direction": [
+            "vertical",
+            "horizontal"
+        ],
+        "bg_type": [
+            "none",
+            "solid",
+            "gradient"
+        ],
+        "bg_color": "color",
+        "border_radius": {
+            "type": "range",
+            "min": 0,
+            "max": 50,
+            "unit": "px",
+            "default": 12
+        },
+        "enable_shadow": [
+            "true",
+            "false"
+        ]
+    },
+    "_notes": "Real Liquid schema also declares its own nested `blocks` list (button, heading, text, image, and 20+ other types it can contain) — nested block-in-block containment isn't represented by this catalog's schema format (allowed_blocks only exists on SECTIONS today), so this schema only covers the container's OWN settings, not what can be nested inside it. Real schema also has extensive padding/margin/media-background/gradient-border styling settings, omitted here as decorative."
+}

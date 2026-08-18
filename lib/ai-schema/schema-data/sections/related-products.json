@@ -1,0 +1,61 @@
+{
+    "id": "related-products",
+    "label": "Related Products",
+    "purpose": "Show a grid of products related to the current product, on product pages",
+    "category": "product-showcase",
+    "tags": [
+        "related",
+        "recommendations"
+    ],
+    "allowed_on": [
+        "product"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "heading_size": [
+            "h3",
+            "h2",
+            "h1",
+            "h0",
+            "custom"
+        ],
+        "products_to_show": {
+            "type": "range",
+            "min": 2,
+            "max": 12,
+            "default": 4
+        },
+        "columns_desktop": {
+            "type": "range",
+            "min": 1,
+            "max": 6,
+            "default": 4
+        },
+        "color_scheme": [
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse"
+        ],
+        "image_ratio": [
+            "adapt",
+            "portrait",
+            "square"
+        ],
+        "show_vendor": [
+            "true",
+            "false"
+        ],
+        "show_rating": [
+            "true",
+            "false"
+        ],
+        "enable_quick_add": [
+            "true",
+            "false"
+        ],
+        "button_label": "text"
+    },
+    "_notes": "Products shown are chosen automatically by Shopify's product recommendation engine, not selected individually — there is no block/product-picker to configure. Only makes sense on the product template."
+}

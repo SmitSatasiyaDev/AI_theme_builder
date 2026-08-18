@@ -1,0 +1,34 @@
+{
+    "id": "hotspot",
+    "label": "Product Hotspot",
+    "purpose": "A clickable product marker positioned on a Shoppable Image section",
+    "category": "product-showcase",
+    "tags": [
+        "shoppable",
+        "hotspot"
+    ],
+    "settings": {
+        "product": "product_picker",
+        "text": "richtext",
+        "alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "offset_x": {
+            "type": "range",
+            "min": 0,
+            "max": 100,
+            "unit": "%",
+            "default": 30
+        },
+        "offset_y": {
+            "type": "range",
+            "min": 0,
+            "max": 100,
+            "unit": "%",
+            "default": 30
+        }
+    },
+    "_notes": "offset_x/offset_y position the hotspot marker as a percentage of the parent image's width/height. Real schema also has separate mobile-specific offset overrides, omitted here — the desktop offsets are used for both by default."
+}

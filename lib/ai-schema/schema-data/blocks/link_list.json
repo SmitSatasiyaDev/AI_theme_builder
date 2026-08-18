@@ -1,0 +1,11 @@
+{
+    "id": "link_list",
+    "label": "Link List",
+    "purpose": "A titled group of navigation links in the footer",
+    "category": "layout-structural",
+    "tags": ["footer"],
+    "settings": {
+        "heading": "text"
+    },
+    "_notes": "Only \"heading\" is AI-controlled. This block also has a \"menu\" setting in the real theme (which real Shopify navigation menu it displays) — it is deliberately NOT listed here and must never appear in your output. The existing menu assignment is preserved automatically by the merge step, matched by block position; inventing one risks pointing the footer at a menu that doesn't exist."
+}

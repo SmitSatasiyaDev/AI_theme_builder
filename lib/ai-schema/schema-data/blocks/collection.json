@@ -1,0 +1,11 @@
+{
+    "id": "collection",
+    "label": "Collection",
+    "purpose": "Feature a collection",
+    "category": "product-showcase",
+    "tags": [],
+    "settings": {
+        "collection": "collection_picker"
+    },
+    "_notes": "Collection block for collage section. Select a collection to feature."
+}

@@ -1,0 +1,35 @@
+{
+    "id": "section-divider",
+    "label": "Section Divider",
+    "purpose": "Visual divider between sections with customizable style",
+    "category": "layout-structural",
+    "tags": [],
+    "allowed_on": [
+        "index",
+        "page",
+        "product"
+    ],
+    "settings": {
+        "divider_style": [
+            "solid",
+            "dashed",
+            "dotted",
+            "double",
+            "wave",
+            "zigzag"
+        ],
+        "divider_height": {
+            "type": "range",
+            "min": 1,
+            "max": 10,
+            "default": 2
+        },
+        "divider_color": "color",
+        "show_divider": [
+            "true",
+            "false"
+        ]
+    },
+    "allowed_blocks": [],
+    "_notes": "Section divider adds visual separation between sections. No blocks needed. Keep it simple."
+}

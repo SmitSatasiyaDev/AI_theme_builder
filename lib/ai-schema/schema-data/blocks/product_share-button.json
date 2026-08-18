@@ -1,0 +1,34 @@
+{
+    "id": "product_share-button",
+    "label": "Share Buttons",
+    "purpose": "Social sharing buttons for product page",
+    "category": "product-detail",
+    "tags": [
+        "social"
+    ],
+    "settings": {
+        "share_label": {
+            "type": "text",
+            "default": "Share"
+        },
+        "platforms": {
+            "type": "text",
+            "default": "facebook,twitter,pinterest,email"
+        },
+        "button_style": [
+            "icon-only",
+            "icon-text",
+            "text-only"
+        ],
+        "button_size": [
+            "small",
+            "medium",
+            "large"
+        ],
+        "layout": [
+            "horizontal",
+            "vertical"
+        ]
+    },
+    "_notes": "Social sharing buttons for Facebook, Twitter, Pinterest, Email. Helps increase product reach through social media. Available platforms: facebook, twitter, pinterest, linkedin, email, whatsapp, copy-link."
+}

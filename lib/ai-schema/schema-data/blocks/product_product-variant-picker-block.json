@@ -1,0 +1,33 @@
+{
+    "id": "product_product-variant-picker-block",
+    "label": "Variant Picker",
+    "purpose": "Allow customers to select product variants (size, color, style, etc.)",
+    "category": "product-detail",
+    "tags": [
+        "variants"
+    ],
+    "settings": {
+        "picker_types": {
+            "type": "text",
+            "default": "pills, pills, pills"
+        },
+        "custom_labels": {
+            "type": "text",
+            "default": ""
+        },
+        "skip_unavailable": {
+            "type": "checkbox",
+            "default": false
+        },
+        "swatches_size": [
+            "small",
+            "medium",
+            "large",
+            "extra-large"
+        ]
+    },
+    "allowed_blocks": [
+        "product_sizing-chart"
+    ],
+    "_notes": "Critical block for products with variants. Can include pills, dropdown, or swatches. Can contain size chart block. Picker types: 'pills', 'dropdown', 'swatches', 'quantity breaks', 'hidden'."
+}

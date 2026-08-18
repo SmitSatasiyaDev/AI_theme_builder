@@ -1,0 +1,61 @@
+{
+    "id": "testimonials",
+    "label": "Testimonials",
+    "purpose": "Customer reviews and testimonials slider",
+    "category": "social-proof",
+    "tags": [
+        "testimonial",
+        "reviews"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "visibility": [
+            "desktop-hidden",
+            "mobile-hidden",
+            "always-display"
+        ],
+        "cards_color_scheme": [
+            "bg-overlay",
+            "accent-1",
+            "accent-2",
+            "background-1",
+            "background-2",
+            "inverse",
+            "custom"
+        ],
+        "column_alignment": [
+            "left",
+            "center",
+            "right"
+        ],
+        "image_ratio": [
+            "adapt",
+            "portrait",
+            "square",
+            "circle"
+        ],
+        "columns_desktop": {
+            "type": "range",
+            "min": 1,
+            "max": 10,
+            "default": 3
+        },
+        "show_stars": [
+            "true",
+            "false"
+        ],
+        "show_quotes": [
+            "true",
+            "false"
+        ]
+    },
+    "allowed_blocks": [
+        "column"
+    ],
+    "_notes": "Testimonials section should have at least 3 testimonial blocks for best appearance. Author field must be string only, no HTML tags allowed."
+}

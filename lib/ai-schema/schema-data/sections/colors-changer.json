@@ -1,0 +1,27 @@
+{
+    "id": "colors-changer",
+    "label": "Store Colors Changer",
+    "purpose": "Site-wide color scheme override section (accent, text, background, product card colors)",
+    "category": "misc",
+    "tags": [
+        "colors",
+        "theme-settings"
+    ],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "settings": {
+        "colors_solid_button_labels": "color",
+        "colors_accent_1": "color",
+        "colors_accent_2": "color",
+        "colors_text": "color",
+        "colors_outline_button_labels": "color",
+        "colors_background_1": "color",
+        "colors_background_2": "color",
+        "product_card_price_color": "color",
+        "product_card_compare_at_price_color": "color"
+    },
+    "_notes": "Overrides the theme's global color scheme (normally set in config/settings_data.json) from within a single section — placing/editing this section is a page-scoped color override, separate from update_global_settings."
+}

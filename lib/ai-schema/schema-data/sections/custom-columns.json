@@ -1,0 +1,48 @@
+{
+    "id": "custom-columns",
+    "label": "Custom Columns (Old)",
+    "purpose": "Legacy multi-column layout with various content blocks distributed across columns",
+    "category": "content",
+    "tags": [
+        "layout",
+        "legacy"
+    ],
+    "allowed_on": [
+        "index",
+        "page",
+        "product"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "number_of_columns": {
+            "type": "range",
+            "min": 1,
+            "max": 6,
+            "default": 3
+        },
+        "column_alignment": [
+            "left",
+            "center",
+            "right"
+        ]
+    },
+    "allowed_blocks": [
+        "heading",
+        "text",
+        "image",
+        "video",
+        "buttons",
+        "icon-with-text",
+        "rating-stars",
+        "countdown-timer",
+        "email-signup",
+        "custom-liquid",
+        "collapsible-row",
+        "media-slider",
+        "payment-badges",
+        "atc-button",
+        "text-with-icon",
+        "trustpilot-stars"
+    ],
+    "_notes": "Custom columns is a legacy flexible layout section where blocks can be distributed across multiple columns. Each block has a 'column' setting (col_1 to col_6) to specify which column it belongs to. Use this for complex multi-column layouts. Use EXACT block names as listed in allowed_blocks above (hyphens matter): 'icon-with-text' NOT 'icon_with_text', 'rating-stars' NOT 'rating_stars', 'payment-badges' NOT 'payment_badges', 'collapsible-row' NOT 'accordion'."
+}

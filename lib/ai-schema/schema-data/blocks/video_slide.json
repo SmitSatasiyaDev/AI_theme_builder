@@ -1,0 +1,36 @@
+{
+    "id": "video_slide",
+    "label": "Video Slide",
+    "purpose": "A single video slide within an Image/Video Slider section",
+    "category": "media",
+    "tags": [
+        "slider",
+        "gallery"
+    ],
+    "settings": {
+        "video": "video",
+        "thumbnail": "image_picker",
+        "loop": [
+            "true",
+            "false"
+        ],
+        "muted_autoplay": [
+            "true",
+            "false"
+        ],
+        "play_btn_position": [
+            "center",
+            "top-left",
+            "top-right",
+            "bottom-right",
+            "bottom-left"
+        ],
+        "description": "richtext",
+        "desc_alignment": [
+            "",
+            "center",
+            "right"
+        ]
+    },
+    "_notes": "desc_alignment's 'left' option is the literal empty string \"\" in the real Shopify schema, not the word \"left\" — copy it verbatim. Real schema also has many secondary play-button/sound/timeline styling settings (color scheme, size, corner radius, animation) omitted here as decorative/low content-value."
+}

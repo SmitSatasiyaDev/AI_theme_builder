@@ -1,0 +1,34 @@
+{
+    "id": "product_quantity-selector",
+    "label": "Quantity Selector",
+    "purpose": "Allow customers to select quantity with optional quantity breaks/discounts",
+    "category": "product-detail",
+    "tags": [],
+    "settings": {
+        "full_width_classic": {
+            "type": "checkbox",
+            "default": false
+        },
+        "enable_quantity_discounts": {
+            "type": "checkbox",
+            "default": false
+        },
+        "headline": {
+            "type": "text",
+            "default": "BUNDLE & SAVE"
+        },
+        "style": [
+            "normal",
+            "compact",
+            "vertical"
+        ],
+        "preselected": [
+            "none",
+            "option_1",
+            "option_2",
+            "option_3",
+            "option_4"
+        ]
+    },
+    "_notes": "Shows quantity input field. Can enable quantity breaks for bulk discounts (Buy 2 Save 10%, Buy 3 Save 15%). Requires Shopify automatic discounts setup."
+}

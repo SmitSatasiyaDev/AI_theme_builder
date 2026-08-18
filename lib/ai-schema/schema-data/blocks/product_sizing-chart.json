@@ -1,0 +1,34 @@
+{
+    "id": "product_sizing-chart",
+    "label": "Size Chart",
+    "purpose": "Display size chart popup for apparel and sizing information",
+    "category": "product-detail",
+    "tags": [
+        "sizing"
+    ],
+    "settings": {
+        "button_label": {
+            "type": "richtext",
+            "default": "Sizing chart"
+        },
+        "button_icon": {
+            "type": "text",
+            "default": "straighten"
+        },
+        "button_alignment": [
+            "start",
+            "center",
+            "end"
+        ],
+        "headline": {
+            "type": "text",
+            "default": "Sizing Chart"
+        },
+        "content_type": [
+            "table",
+            "text",
+            "image"
+        ]
+    },
+    "_notes": "For apparel/fashion stores. Can be nested inside variant picker block. Opens as popup with sizing information table or image."
+}

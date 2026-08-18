@@ -1,0 +1,33 @@
+{
+    "id": "collage",
+    "label": "Collage",
+    "purpose": "Display a collage of images and products in various layouts",
+    "category": "content",
+    "tags": [
+        "visual",
+        "product"
+    ],
+    "allowed_on": [
+        "index",
+        "page",
+        "product"
+    ],
+    "settings": {
+        "title": "inline_richtext",
+        "heading": "inline_richtext",
+        "desktop_layout": [
+            "left",
+            "right"
+        ],
+        "mobile_layout": [
+            "collage",
+            "column"
+        ]
+    },
+    "allowed_blocks": [
+        "image",
+        "product"
+    ],
+    "max_blocks": 3,
+    "_notes": "IMPORTANT: Collage section has MAXIMUM 3 blocks only. Do NOT add more than 3 blocks. Desktop layout controls which side large image appears. Use 'image' blocks for static images and 'product' blocks to feature products."
+}

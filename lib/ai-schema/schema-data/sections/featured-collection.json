@@ -1,0 +1,56 @@
+{
+    "id": "featured-collection",
+    "label": "Featured Collection",
+    "purpose": "Display a collection of products",
+    "category": "product-showcase",
+    "tags": [],
+    "allowed_on": [
+        "index",
+        "product",
+        "page"
+    ],
+    "_notes": "Columns_mobile must be string values, not numbers. Title must be string only, no HTML tags allowed.",
+    "settings": {
+        "title": "inline_richtext",
+        "collection": "collection",
+        "products_to_show": {
+            "type": "number",
+            "min": 4,
+            "max": 4,
+            "default": 4
+        },
+        "columns_desktop": {
+            "type": "range",
+            "min": 1,
+            "max": 10,
+            "default": 4
+        },
+        "columns_mobile": [
+            "1",
+            "2"
+        ],
+        "show_view_all": [
+            "true",
+            "false"
+        ],
+        "image_ratio": [
+            "adapt",
+            "portrait",
+            "square",
+            "landscape"
+        ],
+        "show_secondary_image": [
+            "true",
+            "false"
+        ],
+        "show_vendor": [
+            "true",
+            "false"
+        ],
+        "enable_quick_add": [
+            "true",
+            "false"
+        ]
+    },
+    "allowed_blocks": []
+}

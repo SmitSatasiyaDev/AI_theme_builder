@@ -1,0 +1,90 @@
+{
+    "id": "main-product",
+    "label": "Main Product",
+    "purpose": "Main product information section with all product blocks",
+    "category": "product-detail",
+    "tags": [],
+    "template": "product",
+    "allowed_on": [
+        "product"
+    ],
+    "settings": {
+        "enable_sticky_info": {
+            "type": "checkbox",
+            "default": true
+        },
+        "media_position": [
+            "left",
+            "right"
+        ],
+        "gallery_layout": [
+            "stacked",
+            "thumbnail_slider",
+            "columns"
+        ],
+        "media_size": [
+            "small",
+            "medium",
+            "large"
+        ],
+        "mobile_thumbnails": [
+            "show",
+            "hide"
+        ],
+        "hide_variants": {
+            "type": "checkbox",
+            "default": false
+        },
+        "enable_video_looping": {
+            "type": "checkbox",
+            "default": false
+        }
+    },
+    "allowed_blocks": [
+        "text",
+        "heading",
+        "image",
+        "video",
+        "button",
+        "atc-button",
+        "product_title",
+        "product_price",
+        "rating-stars",
+        "product-rating",
+        "product_product-variant-picker-block",
+        "product_sizing-chart",
+        "product_quantity-selector",
+        "product_quantity-gifts",
+        "product_shipping-checkpoints",
+        "product_inventory",
+        "product_buy-buttons",
+        "product_clickable-discount",
+        "payment-badges",
+        "product_estimated-shipping",
+        "icon-with-text",
+        "text-with-icon",
+        "product_custom-product-field",
+        "product_urgency",
+        "product_tabs",
+        "media-slider",
+        "product_subscription",
+        "product_sticky-atc",
+        "collapsible-row",
+        "countdown-timer",
+        "product_share-button",
+        "product_bundle-offer",
+        "product_description",
+        "product_award-badge",
+        "review-avatars",
+        "reviews",
+        "product_complementary",
+        "product_emoji-benefits",
+        "product_popup",
+        "product_scroll-buttons",
+        "product_sku",
+        "product_upsell-block--product-info",
+        "product_view-details",
+        "custom-liquid"
+    ],
+    "_notes": "This is the main product section that appears on all product pages. Essential blocks: product_title, product_price, product_product-variant-picker-block, product_buy-buttons, product_description. Blocks are displayed in the order specified in block_order array. Typical order: award_badge → review-avatars → title → price → rating-stars OR product-rating → description → variant_picker → quantity_selector → buy_buttons → shipping_checkpoints → payment-badges → product_tabs OR collapsible-row → share. Use EXACT block names as listed in allowed_blocks above, copied verbatim (hyphens vs underscores matter): 'rating-stars' NOT 'rating_stars', 'payment-badges' NOT 'payment_badges', 'icon-with-text' NOT 'icon_with_text', 'text-with-icon' NOT 'text_with_icon', 'atc-button' NOT 'atc_button', 'media-slider' NOT 'media_slider', 'countdown-timer' NOT 'countdown_timer', 'custom-liquid' NOT 'custom_liquid', 'product_tabs' NOT 'tab', 'collapsible-row' NOT 'accordion', 'product-rating' for product ratings."
+}

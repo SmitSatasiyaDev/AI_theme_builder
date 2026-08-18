@@ -1,0 +1,13 @@
+{
+    "id": "email_signup",
+    "label": "Footer Email Signup",
+    "purpose": "Newsletter signup prompt in the footer",
+    "category": "form-input",
+    "tags": ["footer", "newsletter"],
+    "settings": {
+        "heading": "text",
+        "subtext": "richtext",
+        "button_label": "text"
+    },
+    "_notes": "Distinct from the unrelated \"email-signup\" block used elsewhere — this id (\"email_signup\", underscore) matches the footer's actual Shopify block type verbatim. \"subtext\" must be wrapped in <p> tags. Layout settings (button style, column width) are merchant styling and are not listed here — never output them."
+}
