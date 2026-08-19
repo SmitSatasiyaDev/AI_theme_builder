@@ -1,0 +1,7 @@
+# pnpm 11 asks before running dependency build scripts. Both of these need
+# theirs: esbuild's postinstall fetches the platform binary that `tsx` (the
+# worker + db:local runner) shells out to, and unrs-resolver's fetches the
+# native resolver binding used by eslint-config-next.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true

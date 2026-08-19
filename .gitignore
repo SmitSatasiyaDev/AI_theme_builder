@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local Shopify theme checkout (LOCAL_THEME_ROOT) — vendored base theme,
+# not part of this app's source
+/theme_base
+
+# `pnpm generate --out-dir <dir>` output: a full copy of the theme with the
+# generated template written into it. Regenerable, and 30MB+ each.
+/theme_out*
