@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Field } from "@base-ui/react/field";
 
 type EditTurnResult = {
@@ -24,6 +24,49 @@ type ChatMessage = {
 
 const APPLIABLE_STATUSES = new Set(["PROPOSED", "COMPLETED"]);
 
+// runOperationProposalStage (edit-pipeline.ts) has no intermediate progress events — it's one
+// request/response — so this is a client-side approximation of the pipeline's real stages
+// (resolve target -> pick/propose a section op -> validate against the schema), cycled on a
+// timer purely so the chat doesn't sit blank while the request is in flight.
+const THINKING_STAGES = ["Reading your theme…", "Deciding on a section…", "Generating the change…", "Checking it fits…"];
+const THINKING_STAGE_INTERVAL_MS = 1400;
+
+// Surfaces edit-pipeline.ts's existing add_section operation, which most merchants have no way
+// to know exists — nothing in the chat hints that "add a section" is a supported request. A
+// small, fixed set by default rather than a dynamic catalog listing: enough to make the
+// capability discoverable without turning the chat into a full section picker up front. The rest
+// of the catalog (allowed_on index/product, so it's visible on the Home/Product preview tabs) is
+// one click away via "+ More sections" for merchants who want to browse everything.
+const ADD_SECTION_SUGGESTIONS = [
+  { label: "+ Testimonials", message: "Add a customer testimonials section" },
+  { label: "+ Newsletter signup", message: "Add a newsletter signup section" },
+  { label: "+ Featured products", message: "Add a featured collection section" },
+  { label: "+ Comparison table", message: "Add a comparison table section" }
+];
+
+// Excludes: footer / main-product (structural singletons, not merchant-addable extras),
+// custom-columns (superseded by custom-columns-new), and contact-form / track-order /
+// email-signup-banner (allowed only on page/password templates, which the preview doesn't show).
+const MORE_SECTION_SUGGESTIONS = [
+  { label: "+ Slideshow", message: "Add a slideshow section" },
+  { label: "+ Image with text", message: "Add an image with text section" },
+  { label: "+ Image/video slider", message: "Add an image/video slider section" },
+  { label: "+ Collage", message: "Add a collage section" },
+  { label: "+ Rich text", message: "Add a rich text section" },
+  { label: "+ Content tabs", message: "Add a content tabs section" },
+  { label: "+ Collapsible content", message: "Add a collapsible content section" },
+  { label: "+ Custom columns", message: "Add a custom columns section" },
+  { label: "+ Icon bar", message: "Add an icon bar section" },
+  { label: "+ Section divider", message: "Add a section divider" },
+  { label: "+ Facebook testimonials", message: "Add a Facebook testimonials section" },
+  { label: "+ Results", message: "Add a results section" },
+  { label: "+ Horizontal ticker", message: "Add a horizontal ticker section" },
+  { label: "+ Vertical ticker", message: "Add a vertical ticker section" },
+  { label: "+ Related products", message: "Add a related products section", onlyOn: "product" },
+  { label: "+ Shoppable image", message: "Add a shoppable image section", onlyOn: "product" },
+  { label: "+ Store colors changer", message: "Add a store colors changer section" }
+];
+
 function summarizeResult(result: EditTurnResult): string {
   if (result.error) return `Something went wrong: ${result.error}`;
 
@@ -43,7 +86,7 @@ function summarizeResult(result: EditTurnResult): string {
     case "IDLE":
       return result.message || "Okay — cleared.";
     case "INITIAL_GENERATION":
-      return "That sounds like a full redesign — use the Generate tab for that instead.";
+      return "That sounds like a full redesign — switching over to build it fresh…";
     case "TOO_MANY_OPERATIONS":
       return result.message || "That includes several changes — let's handle them one at a time.";
     default:
@@ -51,7 +94,17 @@ function summarizeResult(result: EditTurnResult): string {
   }
 }
 
-export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
+interface EditChatPanelProps {
+  orgSlug: string;
+  /** Which preview tab ("index"/"product") is active — sent as the edit's default target template, so "add a section" et al. land on the page the merchant is actually looking at. */
+  templateName: string;
+  /** Fired once "Apply to store" succeeds, so the parent workspace refreshes the live preview. */
+  onApplied?: () => void;
+  /** Fired when the edit backend classifies a message as a full redesign request, not a targeted edit — the parent workspace switches to the generate chat, carrying the message over. */
+  onRequestFullGeneration?: (message: string) => void;
+}
+
+export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullGeneration }: EditChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -60,23 +113,39 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
   const [applying, setApplying] = useState(false);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showMoreSections, setShowMoreSections] = useState(false);
+  const [thinkingStage, setThinkingStage] = useState(0);
+  const thinkingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
+  useEffect(() => {
+    if (sending) {
+      thinkingTimer.current = setInterval(() => {
+        setThinkingStage((i) => (i + 1) % THINKING_STAGES.length);
+      }, THINKING_STAGE_INTERVAL_MS);
+    } else if (thinkingTimer.current) {
+      clearInterval(thinkingTimer.current);
+      thinkingTimer.current = null;
+    }
+    return () => {
+      if (thinkingTimer.current) clearInterval(thinkingTimer.current);
+    };
+  }, [sending]);
+
+  async function submitMessage(text: string) {
     if (!text || sending) return;
 
     setError(null);
     setApplyMessage(null);
     setMessages((prev) => [...prev, { role: "user", text }]);
     setInput("");
+    setThinkingStage(0);
     setSending(true);
 
     try {
       const res = await fetch("/api/edit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org: orgSlug, message: text, sessionId })
+        body: JSON.stringify({ org: orgSlug, message: text, sessionId, templateName })
       });
       const result: EditTurnResult = await res.json();
       if (!res.ok) throw new Error(result.error || "Edit request failed");
@@ -84,6 +153,9 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
       setSessionId(result.sessionId);
       setCanApply(APPLIABLE_STATUSES.has(result.status));
       setMessages((prev) => [...prev, { role: "assistant", text: summarizeResult(result) }]);
+      if (result.status === "INITIAL_GENERATION") {
+        onRequestFullGeneration?.(text);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -91,6 +163,12 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
     } finally {
       setSending(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    submitMessage(text);
   }
 
   async function handleApply() {
@@ -107,6 +185,7 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
       if (!res.ok) throw new Error(body.error || "Failed to apply");
       setApplyMessage(`Applied — updated ${body.filesWritten?.length ?? 0} file(s) on your live theme.`);
       setCanApply(false);
+      onApplied?.();
     } catch (err) {
       setApplyMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -116,7 +195,7 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
 
   return (
     <div className="flex max-w-xl flex-col gap-4">
-      <div className="flex min-h-[10rem] flex-col gap-3 rounded-md border border-gray-200 p-4">
+      <div className="flex min-h-40 flex-col gap-3 rounded-md border border-gray-200 p-4">
         {messages.length === 0 && (
           <p className="text-sm text-gray-500">
             Describe a change, e.g. &ldquo;Change the hero heading to Healthy nutrition for every
@@ -133,6 +212,14 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
             {m.text}
           </div>
         ))}
+        {sending && (
+          <div className="max-w-[85%] self-start rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400" />
+              {THINKING_STAGES[thinkingStage]}
+            </span>
+          </div>
+        )}
       </div>
 
       {canApply && (
@@ -146,6 +233,39 @@ export function EditChatPanel({ orgSlug }: { orgSlug: string }) {
         </button>
       )}
       {applyMessage && <p className="text-sm text-gray-600">{applyMessage}</p>}
+
+      <div className="flex flex-wrap gap-1.5">
+        {ADD_SECTION_SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion.label}
+            type="button"
+            disabled={sending}
+            onClick={() => submitMessage(suggestion.message)}
+            className="rounded-full border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+          >
+            {suggestion.label}
+          </button>
+        ))}
+        {showMoreSections &&
+          MORE_SECTION_SUGGESTIONS.filter((s) => !s.onlyOn || s.onlyOn === templateName).map((suggestion) => (
+            <button
+              key={suggestion.label}
+              type="button"
+              disabled={sending}
+              onClick={() => submitMessage(suggestion.message)}
+              className="rounded-full border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+            >
+              {suggestion.label}
+            </button>
+          ))}
+        <button
+          type="button"
+          onClick={() => setShowMoreSections((v) => !v)}
+          className="rounded-full border border-dashed border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-100"
+        >
+          {showMoreSections ? "Show fewer sections" : "+ More sections"}
+        </button>
+      </div>
 
       <form onSubmit={handleSubmit} className="flex gap-2">
         <Field.Root className="flex-1">

@@ -25,8 +25,7 @@ export default async function OrgLayout({
   const nav = [
     { href: `/dashboard/${orgSlug}`, label: "Overview" },
     { href: `/dashboard/${orgSlug}/stores`, label: "Stores" },
-    { href: `/dashboard/${orgSlug}/generate`, label: "Generate" },
-    { href: `/dashboard/${orgSlug}/edit`, label: "Edit" },
+    { href: `/dashboard/${orgSlug}/generate`, label: "Theme" },
     { href: `/dashboard/${orgSlug}/settings`, label: "Settings" },
   ];
 

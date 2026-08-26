@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
   const orgSlug = body?.org as string | undefined;
   const message = String(body?.message ?? "").trim();
   const requestedSessionId = body?.sessionId as string | undefined;
+  const templateName = typeof body?.templateName === "string" && body.templateName ? body.templateName : "index";
 
   if (!orgSlug || !message) {
     return NextResponse.json({ error: "org and message are required" }, { status: 400 });
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
       themeId: themeCompositeId,
       themeState,
       schemas: fullSchemas,
-      templateName: "index",
+      templateName,
       autoApply: false,
       requestId: sessionId
     });

@@ -173,10 +173,10 @@ CRITICAL RULES:
 6. If the request does not clearly map to exactly one of the supported operation types, still propose your best single guess — validation will catch anything unsafe.`;
 
     if (targetContext) {
-        rules += `\n\nCURRENT TARGET CONTEXT (the existing component you are most likely editing):\n${JSON.stringify(targetContext, null, 2)}`;
+        rules += `\n\nCURRENT TARGET CONTEXT (the existing component you are most likely editing):\n${JSON.stringify(targetContext)}`;
     }
     if (candidatePool) {
-        rules += `\n\nAVAILABLE TYPES (for add_section/add_block only):\n${JSON.stringify(candidatePool, null, 2)}`;
+        rules += `\n\nAVAILABLE TYPES (for add_section/add_block only):\n${JSON.stringify(candidatePool)}`;
     }
     return rules;
 }

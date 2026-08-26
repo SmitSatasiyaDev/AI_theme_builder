@@ -26,7 +26,25 @@ import type { GenerationConfig, RetrievedSchemaCatalog, SchemaCatalog, ValidateO
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "moonshotai/kimi-k2.5";
+// Cheap/fast tier for simple, low-reasoning calls (brief-intake field
+// extraction) — NOT used for the staged generation plan/configuration
+// calls, which need the primary model's reasoning to satisfy schema
+// constraints on the single allowed repair attempt (see generation.ts).
+// No hardcoded model name here — entirely env-driven. Unset means "no
+// fast tier," i.e. brief-intake just uses OPENROUTER_MODEL like everything
+// else, until OPENROUTER_FAST_MODEL is set (e.g. in production).
+export const OPENROUTER_FAST_MODEL = process.env.OPENROUTER_FAST_MODEL || OPENROUTER_MODEL;
 const DEBUG = process.env.DEBUG === "true";
+
+// process.cwd()-relative, not __dirname-relative: __dirname resolves correctly for the
+// standalone worker (scripts/worker.ts, run via plain tsx), but inside a Next.js server
+// process (e.g. app/api/edit/route.ts calling loadSchemas()) it resolves to whatever
+// virtualized root Next's bundler gives the module, not the real filesystem path — this was
+// latent until an API route first called loadSchemas() directly, which threw ENOENT reading
+// a schema-data path built from __dirname. process.cwd() is stable in both: both `next
+// dev`/`next start` and the tsx-run worker/CLI scripts are always launched from the project
+// root (see package.json's "dev"/"worker"/"generate" scripts).
+const SCHEMA_DATA_DIR = path.join(process.cwd(), "lib", "ai-schema", "schema-data");
 
 /**
  * Load every schema file from disk (global + all sections + all blocks),
@@ -42,7 +60,7 @@ const DEBUG = process.env.DEBUG === "true";
  * id-keyed lookup over these directories.
  */
 async function loadAllSchemasFromDisk(): Promise<SchemaCatalog> {
-    const schemasDir = path.join(__dirname, "schema-data");
+    const schemasDir = SCHEMA_DATA_DIR;
 
     try {
         const globalSchema = JSON.parse(
@@ -197,13 +215,13 @@ CRITICAL RULES:
    - Do NOT use "tab" or "accordion" as a block type — they don't exist in this theme; use "product_tabs" or "collapsible-row" instead
 
 AVAILABLE GLOBAL SETTINGS:
-${JSON.stringify(globalSchema, null, 2)}
+${JSON.stringify(globalSchema)}
 
 AVAILABLE SECTIONS:
-${JSON.stringify(sectionSchemas, null, 2)}
+${JSON.stringify(sectionSchemas)}
 
 AVAILABLE BLOCKS:
-${JSON.stringify(blockSchemas, null, 2)}
+${JSON.stringify(blockSchemas)}
 
 OUTPUT FORMAT:
 Your response must be a JSON object with this structure:
@@ -234,13 +252,66 @@ IMPORTANT: The order array should contain AT MOST 10 sections for optimal homepa
 }
 
 /**
+ * Escapes raw control characters (newline, tab, etc.) that appear INSIDE
+ * JSON string literals. Despite response_format: "json_object", models
+ * occasionally emit a literal "\n" instead of the escaped "\\n" inside a
+ * long text field (e.g. a multi-paragraph product description), which is
+ * illegal per the JSON spec and makes JSON.parse throw "Bad control
+ * character in string literal". This walks the raw text tracking
+ * string/escape state (without touching whitespace between tokens) and
+ * escapes any 0x00-0x1F character found inside a string literal.
+ */
+export function sanitizeJsonControlCharacters(text: string): string {
+    let result = "";
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inString) {
+            if (escaped) {
+                result += ch;
+                escaped = false;
+                continue;
+            }
+            if (ch === "\\") {
+                result += ch;
+                escaped = true;
+                continue;
+            }
+            if (ch === '"') {
+                inString = false;
+                result += ch;
+                continue;
+            }
+            const code = text.charCodeAt(i);
+            if (code < 0x20) {
+                switch (ch) {
+                    case "\n": result += "\\n"; break;
+                    case "\r": result += "\\r"; break;
+                    case "\t": result += "\\t"; break;
+                    default: result += "\\u" + code.toString(16).padStart(4, "0");
+                }
+                continue;
+            }
+            result += ch;
+            continue;
+        }
+        if (ch === '"') {
+            inString = true;
+        }
+        result += ch;
+    }
+    return result;
+}
+
+/**
  * Make an AI request to OpenRouter with retry logic
  */
 export async function makeAIRequest(
     userPrompt: string,
     systemPrompt: string,
     maxRetries = 3,
-    context: { requestId?: string; callType?: string } = {}
+    context: { requestId?: string; callType?: string; model?: string } = {}
 ): Promise<string | undefined> {
     if (!OPENROUTER_API_KEY) {
         throw new Error("OPENROUTER_API_KEY not set in environment. Please set it in .env file");
@@ -250,7 +321,7 @@ export async function makeAIRequest(
         throw new Error("Invalid user prompt: must be a non-empty string");
     }
 
-    const { requestId = instrumentation.nextRequestId("gen"), callType = "main_generation" } = context;
+    const { requestId = instrumentation.nextRequestId("gen"), callType = "main_generation", model = OPENROUTER_MODEL } = context;
     const startTime = Date.now();
     const promptChars = (systemPrompt ? systemPrompt.length : 0) + userPrompt.length;
 
@@ -265,7 +336,7 @@ export async function makeAIRequest(
                     "X-Title": "Shopify Theme AI Configurator"
                 },
                 body: JSON.stringify({
-                    model: OPENROUTER_MODEL,
+                    model,
                     messages: [
                         {
                             role: "system",
@@ -300,24 +371,25 @@ export async function makeAIRequest(
             }
 
             const content = data.choices[0].message.content;
+            const sanitizedContent = content ? sanitizeJsonControlCharacters(content) : content;
             instrumentation.logAICall({
                 requestId,
                 callType,
-                model: OPENROUTER_MODEL,
+                model,
                 promptChars,
-                outputChars: content ? content.length : 0,
+                outputChars: sanitizedContent ? sanitizedContent.length : 0,
                 durationMs: Date.now() - startTime,
                 retryCount: attempt - 1,
                 attempts: attempt,
                 success: true
             });
-            return content;
+            return sanitizedContent;
         } catch (error) {
             if (attempt === maxRetries) {
                 instrumentation.logAICall({
                     requestId,
                     callType,
-                    model: OPENROUTER_MODEL,
+                    model,
                     promptChars,
                     outputChars: 0,
                     durationMs: Date.now() - startTime,
@@ -682,7 +754,7 @@ IMPORTANT:
             console.log("🔍 Raw AI color response:", content.substring(0, 200));
         }
 
-        const colorPalette = JSON.parse(content);
+        const colorPalette = JSON.parse(sanitizeJsonControlCharacters(content));
 
         // Validate that we got the required color fields
         if (!colorPalette.colors_accent_1 || !colorPalette.colors_accent_2) {
@@ -759,7 +831,7 @@ export async function loadGlobalSettings(customColors: Record<string, string> | 
     presets: Record<string, unknown>;
     platform_customizations: { custom_css: unknown[] };
 }> {
-    const globalPath = path.join(__dirname, "schema-data", "global.json");
+    const globalPath = path.join(SCHEMA_DATA_DIR, "global.json");
 
     try {
         const globalData = JSON.parse(await fs.readFile(globalPath, "utf8"));

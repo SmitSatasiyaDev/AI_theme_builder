@@ -60,6 +60,49 @@ import type {
 
 export const MAX_PLAN_SECTIONS = 10; // same homepage ceiling validateOutput() already enforces for the legacy path
 
+// A hero section, when one exists, is placed first deterministically instead of left to the
+// planner's judgment. Only one hero-category section exists in the catalog today
+// ("slideshow"), so there is no variety being traded away — this purely removes a class of
+// repair-loop triggers (a plan that omits the hero or buries it isn't structurally invalid
+// today, just off-spec) and shrinks what the AI has to decide. 3 slides is comfortably above
+// slideshow's own schema "_notes" minimum of 2; only the slide *count* is fixed here — slide
+// *content* is still fully AI-written in Stage 2, same as every other section.
+const FORCED_HERO_BLOCK_COUNT = 3;
+const FORCED_HERO_SLOT_ID = "hero-forced";
+
+export interface ForcedHeroSection {
+    id: string;
+    type: string;
+    blockTypes: string[];
+}
+
+/**
+ * Picks the section that should always occupy position 0, if any. Only applies to the general
+ * (non-forced-exclusive) planning path — product/footer-group already fully bypass section
+ * choice via FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE, so forcing a hero there would be redundant.
+ * Returns null when no hero-category section is eligible for this template, so the planner
+ * falls back to deciding freely (e.g. a future template with no hero option at all).
+ */
+export function determineForcedHeroSection(retrievedSchemas: SchemaCatalog, templateName: string): ForcedHeroSection | null {
+    if (FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE[templateName]) return null;
+
+    const heroCandidates = retrievedSchemas.sectionSchemas
+        .filter(s => s.category === "hero")
+        .sort((a, b) => a.id.localeCompare(b.id));
+    const hero = heroCandidates[0];
+    if (!hero) return null;
+
+    const allowedBlockIds = getAllowedBlockIds(hero);
+    const blockCount = hero.max_blocks ? Math.min(FORCED_HERO_BLOCK_COUNT, hero.max_blocks) : FORCED_HERO_BLOCK_COUNT;
+    // Only auto-fills the block list when the section accepts exactly one block type (true of
+    // "slideshow" today, whose only allowed block is "slide") — with more than one type,
+    // picking a mix would itself be a content decision, so it's left to Stage 1 by not forcing
+    // blockTypes at all (an empty array here just means Stage 2 configures zero blocks for it).
+    const blockTypes = allowedBlockIds.length === 1 ? Array(blockCount).fill(allowedBlockIds[0]) : [];
+
+    return { id: FORCED_HERO_SLOT_ID, type: hero.id, blockTypes };
+}
+
 // ---------------------------------------------------------------------------
 // Lightweight capability listing for the planning prompt (no full settings
 // definitions — those only enter Stage 2's prompt, and even there only for
@@ -104,7 +147,13 @@ export function lightweightCapabilityListing(retrievedSchemas: SchemaCatalog): C
 // Stage 1 — Planning
 // ---------------------------------------------------------------------------
 
-export function buildPlanningSystemPrompt(templateName: string, capabilityListing: CapabilityListing, themeContext: GenerationContext): string {
+export function buildPlanningSystemPrompt(
+    templateName: string,
+    capabilityListing: CapabilityListing,
+    themeContext: GenerationContext,
+    forcedHero: ForcedHeroSection | null = null,
+    maxSections: number = MAX_PLAN_SECTIONS
+): string {
     const forcedSectionId = FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE[templateName];
 
     let rules = `You are a Shopify theme STRUCTURE planner. Your only job is to decide WHICH existing sections and blocks to use and in what order — you do NOT write any settings, text, or content yet (that happens in a later step).
@@ -117,8 +166,10 @@ CRITICAL RULES:
 
     if (forcedSectionId) {
         rules += `4. This is the "${templateName}" template: your plan MUST contain EXACTLY ONE section, of type "${forcedSectionId}", and nothing else.\n`;
+    } else if (forcedHero) {
+        rules += `4. The FIRST section of this page is already fixed to a "${forcedHero.type}" section, placed automatically before you plan anything. It is NOT listed in AVAILABLE SECTIONS below — do not include it, reference it, or plan a substitute hero/banner section; do not use the id "${forcedHero.id}" for any section of your own. Your plan covers ONLY the sections that come AFTER it: choose a coherent, non-repetitive set of at most ${maxSections} of them for the "${templateName}" template.\n`;
     } else {
-        rules += `4. Choose a coherent, non-repetitive set of at most ${MAX_PLAN_SECTIONS} sections for the "${templateName}" template. If a hero-like section is available in AVAILABLE SECTIONS, it typically works well first, but use your judgment.\n`;
+        rules += `4. Choose a coherent, non-repetitive set of at most ${maxSections} sections for the "${templateName}" template. If a hero-like section is available in AVAILABLE SECTIONS, it typically works well first, but use your judgment.\n`;
     }
 
     rules += `5. Respond ONLY with valid JSON (no markdown, no explanation) in this exact shape:
@@ -135,7 +186,13 @@ CRITICAL RULES:
         rules += `\n\nCURRENT THEME AWARENESS: the "${templateName}" template currently already contains these section types (context only — prefer a similar composition over an arbitrary one when it genuinely fits the request, but you are planning fresh for this request): ${JSON.stringify(themeContext.existingSections.map(s => s.type))}.`;
     }
 
-    rules += `\n\nAVAILABLE SECTIONS:\n${JSON.stringify(capabilityListing.sections, null, 2)}\n\nAVAILABLE BLOCKS:\n${JSON.stringify(capabilityListing.blocks, null, 2)}`;
+    // Compact (not pretty-printed) — this listing is sent on every single
+    // generation regardless of how many of the ~27 sections/59 blocks are
+    // actually relevant (see file header: Stage 1 deliberately sees the
+    // full template-eligible set, not a keyword-narrowed one, so it can
+    // generalize beyond retrieval-rules.json). Dropping the 2-space
+    // indentation cuts ~25-30% of prompt chars for zero information loss.
+    rules += `\n\nAVAILABLE SECTIONS:\n${JSON.stringify(capabilityListing.sections)}\n\nAVAILABLE BLOCKS:\n${JSON.stringify(capabilityListing.blocks)}`;
 
     return rules;
 }
@@ -153,7 +210,7 @@ export function buildPlanningUserPrompt(brief: Brief, templateName: string, repa
  * candidate set (never the full catalog — §12: "constrained to
  * capabilities that actually exist in the SELECTED schema set").
  */
-export function validateGenerationPlan(plan: unknown, retrievedSchemas: SchemaCatalog, templateName: string): PlainValidationResult {
+export function validateGenerationPlan(plan: unknown, retrievedSchemas: SchemaCatalog, templateName: string, maxSections: number = MAX_PLAN_SECTIONS): PlainValidationResult {
     if (!plan || typeof plan !== "object" || Array.isArray(plan)) {
         return { valid: false, errors: ["plan is not a JSON object"] };
     }
@@ -177,8 +234,8 @@ export function validateGenerationPlan(plan: unknown, retrievedSchemas: SchemaCa
     if (sectionIds.length === 0) {
         errors.push("plan.sections must not be empty");
     }
-    if (order.length > MAX_PLAN_SECTIONS) {
-        errors.push(`plan.order has ${order.length} sections, maximum ${MAX_PLAN_SECTIONS} allowed`);
+    if (order.length > maxSections) {
+        errors.push(`plan.order has ${order.length} sections, maximum ${maxSections} allowed`);
     }
     if (new Set(order).size !== order.length) {
         errors.push("plan.order contains duplicate section ids");
@@ -253,8 +310,18 @@ interface RunPlanningStageOptions {
  * repair attempt is also invalid — §21.
  */
 export async function runPlanningStage({ brief, templateName, retrievedSchemas, themeContext, requestId }: RunPlanningStageOptions): Promise<{ plan: GenerationPlan; repaired: boolean; capabilityListing: CapabilityListing }> {
-    const capabilityListing = lightweightCapabilityListing(retrievedSchemas);
-    const systemPrompt = buildPlanningSystemPrompt(templateName, capabilityListing, themeContext);
+    const forcedHero = determineForcedHeroSection(retrievedSchemas, templateName);
+    const maxSections = forcedHero ? MAX_PLAN_SECTIONS - 1 : MAX_PLAN_SECTIONS;
+
+    // When a hero is forced, the AI never sees or plans it — excluded from what it's shown so
+    // it can't accidentally reintroduce it as a "regular" section, and the capability listing
+    // shrinks by exactly the one entry it no longer needs to consider.
+    const planningSchemas = forcedHero
+        ? { ...retrievedSchemas, sectionSchemas: retrievedSchemas.sectionSchemas.filter(s => s.id !== forcedHero.type) }
+        : retrievedSchemas;
+
+    const capabilityListing = lightweightCapabilityListing(planningSchemas);
+    const systemPrompt = buildPlanningSystemPrompt(templateName, capabilityListing, themeContext, forcedHero, maxSections);
 
     function parseAndValidate(content: string | undefined): { plan: GenerationPlan | null; validation: PlainValidationResult } {
         let plan: GenerationPlan;
@@ -263,7 +330,7 @@ export async function runPlanningStage({ brief, templateName, retrievedSchemas, 
         } catch (error) {
             return { plan: null, validation: { valid: false, errors: [`plan was not valid JSON: ${(error as Error).message}`] } };
         }
-        return { plan, validation: validateGenerationPlan(plan, retrievedSchemas, templateName) };
+        return { plan, validation: validateGenerationPlan(plan, planningSchemas, templateName, maxSections) };
     }
 
     const firstContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, null), systemPrompt, 2, { requestId, callType: "generation_plan" });
@@ -279,7 +346,18 @@ export async function runPlanningStage({ brief, templateName, retrievedSchemas, 
         }
     }
 
-    return { plan: plan!, repaired, capabilityListing };
+    // Prepend the deterministic hero slot — invisible to everything downstream (Stage 2,
+    // matchesPlan, mergeThemeState) since the merged plan is structurally identical to one the
+    // AI produced in full.
+    const finalPlan: GenerationPlan = forcedHero
+        ? {
+            templateName,
+            order: [forcedHero.id, ...plan!.order],
+            sections: { [forcedHero.id]: { type: forcedHero.type, blockTypes: forcedHero.blockTypes }, ...plan!.sections }
+        }
+        : plan!;
+
+    return { plan: finalPlan, repaired, capabilityListing };
 }
 
 // ---------------------------------------------------------------------------
@@ -318,10 +396,10 @@ CRITICAL RULES:
 9. Do not invent product handles, collection handles, or other store data that isn't already known to you — leave such a field empty/omitted rather than guessing.
 
 SCOPED SECTION SCHEMAS (only the types used in the approved structure):
-${JSON.stringify(scopedSectionSchemas, null, 2)}
+${JSON.stringify(scopedSectionSchemas)}
 
 SCOPED BLOCK SCHEMAS (only the types used in the approved structure):
-${JSON.stringify(scopedBlockSchemas, null, 2)}
+${JSON.stringify(scopedBlockSchemas)}
 
 OUTPUT FORMAT:
 {

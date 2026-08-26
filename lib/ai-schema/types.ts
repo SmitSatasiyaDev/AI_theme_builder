@@ -410,6 +410,32 @@ export interface Session {
 }
 
 // ---------------------------------------------------------------------------
+// Conversational generation intake (brief-intake.ts / generation-intake-session.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Session envelope for the chat-based initial-generation intake flow — a
+ * sibling of Session above, not a variant of it. Session's fields
+ * (currentIntent, pendingClarification, resolvedTarget, lastOperation, ...)
+ * are shaped around editing an ALREADY-EXISTING theme; intake instead just
+ * accretes a Brief turn by turn until it's ready to hand off to
+ * runStagedGeneration(). Stored in the same conversation_session table's
+ * turnsJson column as Session objects are (see generation-intake-session.ts),
+ * distinguished at read time by the `kind` discriminant.
+ */
+export interface IntakeSessionState {
+    kind: "intake";
+    sessionId: string;
+    status: "COLLECTING" | "GENERATING" | "FAILED";
+    turnCount: number;
+    lastQuestion: string | null;
+    lastMessage: string | null;
+    jobId: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // Product/collection reference validation (validation.js / operations.js)
 // ---------------------------------------------------------------------------
 

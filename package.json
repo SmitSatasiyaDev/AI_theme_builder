@@ -14,7 +14,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:local": "tsx scripts/db-local.ts",
-    "generate": "tsx scripts/generate-cli.ts"
+    "generate": "tsx scripts/generate-cli.ts",
+    "theme:dev": "shopify theme dev --path theme_base/theme",
+    "theme:check": "shopify theme check --path theme_base/theme"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
@@ -22,6 +24,7 @@
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "liquidjs": "^10.29.0",
     "next": "16.3.1",
     "next-auth": "^5.0.0-beta.32",
     "pg-boss": "^12.27.0",

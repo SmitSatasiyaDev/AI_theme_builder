@@ -62,9 +62,23 @@ Status:
    - `OPENROUTER_API_KEY` (+ optional `OPENROUTER_BASE_URL`/`OPENROUTER_MODEL`)
      — used by `lib/ai-schema/ai-client.ts` for every AI call.
 
-   Note that `theme_base/` is listed in `.gitignore`, so a fresh clone has no
+   Note that `theme_base/` is listed in `.gitignore` (the theme is ~31 MB of
+   vendored third-party files, not this app's source), so a fresh clone has no
    theme checkout and must obtain one before `LOCAL_THEME_ROOT` can point at
-   anything.
+   anything. To recreate it, copy the Shopify theme directories out of the
+   original CLI project — from `../AI_Schema`, the eight standard theme
+   directories plus `images/`:
+
+   ```bash
+   mkdir -p theme_base/theme
+   cp -r ../AI_Schema/{assets,blocks,config,layout,locales,sections,snippets,templates,images} theme_base/theme/
+   ```
+
+   `images/` is not a standard Shopify theme directory, but several
+   `templates/*.json` reference `images/*.png` paths, so it is copied along
+   with the rest. Everything else in `../AI_Schema` (`ai-schema/`, `docs/`,
+   `__MACOSX/`) is the old CLI and is deliberately left behind — its logic
+   already lives in `lib/ai-schema/`.
 
 2. Install dependencies and push the schema:
 
@@ -88,6 +102,18 @@ Status:
    (`pnpm dev` alone starts only the Next.js server — theme generation
    silently never completes without the worker also running. `pnpm worker`
    runs just the worker on its own.)
+
+4. To see the vendored theme rendered as a real storefront:
+
+   ```bash
+   pnpm theme:dev --store <your-store>.myshopify.com
+   ```
+
+   This is `shopify theme dev --path theme_base/theme` — it serves the same
+   checkout that generation reads and writes, on <http://127.0.0.1:9292>, and
+   hot-reloads as the pipeline rewrites `templates/index.json`. Needs the
+   [Shopify CLI](https://shopify.dev/docs/api/shopify-cli) and a store you can
+   log into. `pnpm theme:check` lints that same directory.
 
 ## Database
 
@@ -152,8 +178,9 @@ Two ways to actually write the result:
 - `app/dashboard/` — org picker + org-scoped dashboard (`[org]/stores`,
   `[org]/generate`, `[org]/edit`, `[org]/settings`).
 - `app/api/shopify/install|callback` — Shopify OAuth (state/HMAC verified).
-- `app/api/generate` / `app/api/generate/[jobId]` — kick off a generation job,
-  poll its status/result.
+- `app/api/generate/chat` / `app/api/generate/[jobId]` — one intake-conversation
+  turn (gathers the brief, asks a follow-up, or kicks off a generation job once
+  it has enough), then poll that job's status/result.
 - `app/api/theme/apply` — push an approved generation result to the store.
 - `app/api/edit` — one conversational-edit turn (synchronous).
 - `app/api/edit/apply` — push a session's last proposed edit to the store.
@@ -171,7 +198,8 @@ Two ways to actually write the result:
   exactly what changed. `theme-state.js`, `apply.js`, and
   `conversation-session.js` are rewritten: they read/write the theme via
   `local-theme-fs.js`, which targets a local theme checkout on disk
-  (`LOCAL_THEME_ROOT`, defaulting to `../AI_Schema`) rather than the live
+  (`LOCAL_THEME_ROOT`, vendored at `theme_base/theme`; required, no fallback)
+  rather than the live
   store's theme over the Shopify Admin API — the custom app's token doesn't
   have merchant-approved `read_themes`/`write_themes` — and persist
   state/sessions to Postgres instead of local JSON files. Since `edit-pipeline.js`/
@@ -194,8 +222,9 @@ Two ways to actually write the result:
   generation jobs. Uses `require()`, not `import`, throughout — see the
   comment at the top of the file for why (ESM import hoisting silently broke
   env-var loading here once).
-- `components/generate-panel.tsx` — the generation UI (Base UI + Tailwind):
-  submit a prompt, poll job status, review the plan, apply to the store.
+- `components/generate-chat-panel.tsx` — the generation UI (Base UI + Tailwind):
+  chat through intake until the brief is ready, then poll job status, review the
+  plan, apply to the store.
 - `components/edit-chat-panel.tsx` — the conversational editing UI: a simple
   chat log, session persisted server-side, an "Apply to store" action when a
   turn produces a proposed change.

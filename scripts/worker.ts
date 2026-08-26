@@ -20,6 +20,7 @@ try {
 }
 
 import type { Job } from "pg-boss";
+import type { Brief } from "../lib/ai-schema/types";
 
 const { eq } = require("drizzle-orm");
 const { db } = require("../db");
@@ -34,20 +35,6 @@ const { buildThemeState, saveThemeStateForStore } = require("../lib/ai-schema/th
 const { runStagedGeneration } = require("../lib/ai-schema/generation");
 const { validateCandidate } = require("../lib/ai-schema/validation");
 const { mergeThemeState } = require("../lib/ai-schema/merge");
-const { createEmptyBrief } = require("../lib/ai-schema/brief-logic");
-
-// Phase 3 scope: a one-shot form (business type + free-form description),
-// not the original CLI's multi-turn clarification.js flow — that needs
-// DB-backed session persistence and belongs with Phase 4's conversational
-// editing work. This builds a WebsiteBrief directly instead.
-function buildOneShotBrief(businessType: string, prompt: string) {
-  const brief = createEmptyBrief();
-  brief.businessType = { value: businessType, status: "confirmed", source: "user" };
-  if (prompt) {
-    brief.additionalRequirements = { value: prompt, status: "confirmed", source: "user" };
-  }
-  return brief;
-}
 
 async function processGenerateTheme(jobId: string) {
   const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
@@ -80,57 +67,116 @@ async function processGenerateTheme(jobId: string) {
     });
     await saveThemeStateForStore(store.id, themeId, themeState);
 
-    const inputPayload = JSON.parse(job.inputPrompt || "{}") as { businessType?: string; prompt?: string };
-    const brief = buildOneShotBrief(inputPayload.businessType || "", inputPayload.prompt || "");
-    const templateName = "index";
+    // Written by app/api/generate/chat/route.ts as JSON.stringify(brief)
+    // once the intake conversation has gathered enough to generate.
+    const brief = JSON.parse(job.inputPrompt || "{}") as Brief;
+    const templateNames = ["index", "product"];
 
-    const generated = await runStagedGeneration({
-      brief,
-      schemas: fullSchemas,
-      themeState,
-      templateName,
-      requestId: jobId
+    // Both templates are independent generations against the same brief (the brief already
+    // carries a "products" field the product template's Stage 2 can use) — running them
+    // concurrently rather than sequentially halves the wall-clock cost of the two AI-call
+    // pairs, the same way Shopforge parallelizes its own index+product generation.
+    const wallClockStart = Date.now();
+    const [generatedIndex, generatedProduct] = await Promise.all(
+      templateNames.map(templateName =>
+        runStagedGeneration({
+          brief,
+          schemas: fullSchemas,
+          themeState,
+          templateName,
+          requestId: `${jobId}:${templateName}`
+        })
+      )
+    );
+
+    const indexValidation = validateCandidate(generatedIndex.config, fullSchemas, {
+      templateName: "index",
+      themeState
     });
-
-    const candidateValidation = validateCandidate(generated.config, fullSchemas, {
-      templateName,
+    const productValidation = validateCandidate(generatedProduct.config, fullSchemas, {
+      templateName: "product",
       themeState
     });
 
-    // Phase 3 targets a fresh homepage generation, which intentionally
-    // replaces the template's own section structure — see merge.js's
-    // header comment on mergeFullStructureTemplate(). A generic Shopify
-    // theme's default index.json will usually contain sections our AI
-    // schema catalog doesn't recognize, so this is acknowledged by design
-    // here rather than failing closed on every first run.
-    const merged = mergeThemeState(themeState, {
-      templateName,
-      candidate: generated.config,
-      candidateValidation,
+    // Sequential, not parallel: mergeThemeState() is pure/synchronous and each call only
+    // touches its own template entry (see merge.ts's file header) — feeding the first result's
+    // mergedThemeState as the second call's base composes both into one final state without
+    // either merge needing to know about the other.
+    //
+    // Phase 3 targets a fresh homepage generation, which intentionally replaces the template's
+    // own section structure — see merge.js's header comment on mergeFullStructureTemplate(). A
+    // generic Shopify theme's default index.json will usually contain sections our AI schema
+    // catalog doesn't recognize, so this is acknowledged by design here rather than failing
+    // closed on every first run. The product template goes through mergeForcedExclusiveTemplate
+    // instead (splices main-product in by type match, see merge.ts) — the flag is a no-op there.
+    const mergedIndex = mergeThemeState(themeState, {
+      templateName: "index",
+      candidate: generatedIndex.config,
+      candidateValidation: indexValidation,
       acknowledgeUnknownSectionReplacement: true,
-      requestId: jobId
+      requestId: `${jobId}:index`
     });
-
-    if (!merged.valid) {
+    if (!mergedIndex.valid) {
       throw new Error(
-        `Merge failed: ${merged.conflicts.map((c: { code: string; message: string }) => `[${c.code}] ${c.message}`).join("; ")}`
+        `Merge failed for index: ${mergedIndex.conflicts.map((c: { code: string; message: string }) => `[${c.code}] ${c.message}`).join("; ")}`
       );
     }
+
+    const mergedProduct = mergeThemeState(mergedIndex.mergedThemeState, {
+      templateName: "product",
+      candidate: generatedProduct.config,
+      candidateValidation: productValidation,
+      acknowledgeUnknownSectionReplacement: true,
+      requestId: `${jobId}:product`
+    });
+    if (!mergedProduct.valid) {
+      throw new Error(
+        `Merge failed for product: ${mergedProduct.conflicts.map((c: { code: string; message: string }) => `[${c.code}] ${c.message}`).join("; ")}`
+      );
+    }
+
+    const combinedSummary = {
+      changedFiles: [...mergedIndex.summary!.changedFiles, ...mergedProduct.summary!.changedFiles],
+      changedTemplates: [...mergedIndex.summary!.changedTemplates, ...mergedProduct.summary!.changedTemplates],
+      addedSections: [...mergedIndex.summary!.addedSections, ...mergedProduct.summary!.addedSections],
+      updatedSections: [...mergedIndex.summary!.updatedSections, ...mergedProduct.summary!.updatedSections],
+      removedSections: [...mergedIndex.summary!.removedSections, ...mergedProduct.summary!.removedSections],
+      changedSettings: [...mergedIndex.summary!.changedSettings, ...mergedProduct.summary!.changedSettings],
+      preservedUnknownComponents: [
+        ...mergedIndex.summary!.preservedUnknownComponents,
+        ...mergedProduct.summary!.preservedUnknownComponents
+      ]
+    };
 
     await db.update(generationJobs).set({
       status: "completed",
       resultJson: {
-        templateName,
-        plan: generated.plan,
-        config: generated.config,
-        warnings: generated.warnings,
-        candidateValidation,
-        mergeSummary: merged.summary,
-        mergedThemeState: merged.mergedThemeState,
-        planRepaired: generated.planRepaired,
-        configRepaired: generated.configRepaired,
-        aiCallCount: generated.aiCallCount,
-        durationMs: generated.durationMs
+        templates: {
+          index: {
+            plan: generatedIndex.plan,
+            config: generatedIndex.config,
+            warnings: generatedIndex.warnings,
+            candidateValidation: indexValidation,
+            planRepaired: generatedIndex.planRepaired,
+            configRepaired: generatedIndex.configRepaired,
+            aiCallCount: generatedIndex.aiCallCount,
+            durationMs: generatedIndex.durationMs
+          },
+          product: {
+            plan: generatedProduct.plan,
+            config: generatedProduct.config,
+            warnings: generatedProduct.warnings,
+            candidateValidation: productValidation,
+            planRepaired: generatedProduct.planRepaired,
+            configRepaired: generatedProduct.configRepaired,
+            aiCallCount: generatedProduct.aiCallCount,
+            durationMs: generatedProduct.durationMs
+          }
+        },
+        mergeSummary: combinedSummary,
+        mergedThemeState: mergedProduct.mergedThemeState,
+        aiCallCount: generatedIndex.aiCallCount + generatedProduct.aiCallCount,
+        durationMs: Date.now() - wallClockStart
       },
       completedAt: new Date()
     }).where(eq(generationJobs.id, jobId));
