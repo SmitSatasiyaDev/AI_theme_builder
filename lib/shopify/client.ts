@@ -87,3 +87,86 @@ export async function getProductsForOrg(orgId: string, first = 20) {
 
   return data.products.edges.map((edge) => edge.node);
 }
+
+const PREVIEW_PRODUCT_QUERY = `
+  query PreviewProduct($first: Int!) {
+    products(first: $first, query: "status:active") {
+      edges {
+        node {
+          id
+          title
+          handle
+          descriptionHtml
+          vendor
+          tags
+          options { name values }
+          images(first: 10) {
+            edges { node { url altText } }
+          }
+          variants(first: 25) {
+            edges {
+              node {
+                id
+                title
+                sku
+                price
+                compareAtPrice
+                availableForSale
+                selectedOptions { name value }
+                image { url altText }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface ShopifyPreviewProduct {
+  id: string;
+  title: string;
+  handle: string;
+  descriptionHtml: string;
+  vendor: string;
+  tags: string[];
+  options: { name: string; values: string[] }[];
+  images: { edges: { node: { url: string; altText: string | null } }[] };
+  variants: {
+    edges: {
+      node: {
+        id: string;
+        title: string;
+        sku: string | null;
+        price: string;
+        compareAtPrice: string | null;
+        availableForSale: boolean;
+        selectedOptions: { name: string; value: string }[];
+        image: { url: string; altText: string | null } | null;
+      };
+    }[];
+  };
+}
+
+type PreviewProductsResponse = { products: { edges: { node: ShopifyPreviewProduct }[] } };
+
+/**
+ * One representative active product from the connected store, for threading real product data
+ * (price, images, variants) into the `product` template's Liquid preview — without this, the
+ * theme's `{% if product %}` guards take the empty branch and the page renders with $0 prices,
+ * "Sold out" everywhere, and the theme's own "only intended for product pages" fallback.
+ */
+export async function getRepresentativeProductForOrg(orgId: string): Promise<ShopifyPreviewProduct | null> {
+  const store = await getStoreForOrg(orgId);
+  if (!store) return null;
+
+  const accessToken = decryptSecret(store.accessTokenEncrypted);
+  const data = await shopifyGraphQL<PreviewProductsResponse>(
+    store.shopDomain,
+    accessToken,
+    PREVIEW_PRODUCT_QUERY,
+    { first: 5 },
+  );
+
+  return data.products.edges[0]?.node ?? null;
+}

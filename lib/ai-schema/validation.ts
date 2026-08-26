@@ -393,6 +393,182 @@ export interface ValidateCandidateContext {
     themeState?: ThemeState | null;
 }
 
+// ---------------------------------------------------------------------------
+// Deterministic repair — applied to a freshly generated candidate BEFORE it
+// ever reaches validateOutput()/validateCandidate(), so a class of common,
+// mechanically-fixable AI mistakes never has to pay for a second AI repair
+// round-trip at all. Every fix here mirrors an existing validator's rule
+// exactly (getSettingKind()'s type dispatch, the image/data-reference
+// hallucination guards above, the richtext-wrapping "_notes" convention) —
+// this file invents no new leniency, it just applies the same rule
+// proactively instead of only reactively rejecting.
+//
+// Deliberately scoped to SETTINGS VALUES and block_order bookkeeping only —
+// never touches a section/block's own "type", id, or the plan's structure,
+// so a fix here can never change what matchesPlan() checks. Only reached
+// after the AI response parses as JSON at all (a malformed-JSON response
+// still needs the existing AI repair call — nothing to deterministically
+// fix in text that isn't valid JSON yet).
+// ---------------------------------------------------------------------------
+
+function coerceRepairValue(kind: SettingKind, value: unknown, path: string, fixes: string[]): { value: unknown; changed: boolean } {
+    if (kind.kind === "typeName" || kind.kind === "object") {
+        const typeName = kind.typeName;
+
+        if (typeName === "image" || typeName === "image_picker") {
+            if (typeof value === "string" && value !== "" && !value.startsWith("shopify://") && !/^https?:\/\//.test(value)) {
+                fixes.push(`${path}: cleared hallucinated ${typeName} value ${JSON.stringify(value)}`);
+                return { value: "", changed: true };
+            }
+            return { value, changed: false };
+        }
+
+        if (typeName === "product_picker" || typeName === "collection") {
+            // No known-merchant-data catalog integration exists yet (see
+            // validateDataReferences() above) — any non-empty value is
+            // unverifiable today, so blanking it is always the safe default,
+            // identical to the image guard's own posture.
+            if (typeof value === "string" && value !== "") {
+                fixes.push(`${path}: cleared unverified ${typeName} reference ${JSON.stringify(value)}`);
+                return { value: "", changed: true };
+            }
+            return { value, changed: false };
+        }
+
+        if (typeName === "richtext" || typeName === "inline_richtext" || typeName === "html") {
+            if (typeof value === "string" && value.length > 0 && !/<[a-z][\s\S]*>/i.test(value)) {
+                fixes.push(`${path}: wrapped plain text in <p> for "${typeName}" field`);
+                return { value: `<p>${value}</p>`, changed: true };
+            }
+            return { value, changed: false };
+        }
+
+        if (typeName === "checkbox") {
+            if (typeof value === "string" && (value === "true" || value === "false")) {
+                fixes.push(`${path}: coerced string "${value}" to boolean for checkbox`);
+                return { value: value === "true", changed: true };
+            }
+            return { value, changed: false };
+        }
+
+        if (typeName === "number" || typeName === "range") {
+            let numValue: unknown = value;
+            if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) {
+                numValue = Number(value);
+            }
+            if (typeof numValue === "number" && !Number.isNaN(numValue)) {
+                const def = kind.kind === "object" ? kind.def : undefined;
+                let clamped = numValue;
+                if (def && typeof def.min === "number" && clamped < def.min) clamped = def.min;
+                if (def && typeof def.max === "number" && clamped > def.max) clamped = def.max;
+                if (clamped !== value) {
+                    fixes.push(`${path}: coerced/clamped "${typeName}" value ${JSON.stringify(value)} to ${clamped}`);
+                    return { value: clamped, changed: true };
+                }
+            }
+            return { value, changed: false };
+        }
+    }
+    return { value, changed: false };
+}
+
+function repairSettingsObject(
+    settingsObj: Record<string, unknown>,
+    schemaSettings: Record<string, SettingSchema> | undefined,
+    pathPrefix: string,
+    fixes: string[]
+): void {
+    for (const key of Object.keys(settingsObj)) {
+        const settingSchema = schemaSettings ? schemaSettings[key] : undefined;
+        const path = `${pathPrefix}.${key}`;
+
+        // A setting the schema doesn't define at all is not safely
+        // guessable — dropping it is deterministic and mirrors what
+        // validateSettings() would reject it for anyway (SETTING_UNKNOWN),
+        // just without spending an AI repair call to remove one stray key.
+        if (settingSchema === undefined) {
+            delete settingsObj[key];
+            fixes.push(`${path}: removed setting not defined by this schema`);
+            continue;
+        }
+
+        const value = settingsObj[key];
+        if (value === undefined || value === null) continue;
+
+        const kind = getSettingKind(settingSchema);
+        const { value: repaired, changed } = coerceRepairValue(kind, value, path, fixes);
+        if (changed) settingsObj[key] = repaired;
+    }
+}
+
+/**
+ * Applies deterministic, mechanical fixes to a raw (still-string) Stage 2
+ * AI response — run BEFORE validateOutput()/matchesPlan()/validateCandidate()
+ * so fixable mistakes never trigger a second AI call. Returns the (possibly
+ * unchanged) JSON text plus a human-readable list of what was fixed, for
+ * instrumentation/logging.
+ *
+ * Never throws: an unparseable or structurally-unexpected response is
+ * returned completely unchanged (`fixes: []`) and falls through to the
+ * existing validateOutput()/AI-repair path exactly as it did before this
+ * function existed — this is purely an additive fast path, not a
+ * replacement for the fail-closed validation pipeline.
+ */
+export function applyDeterministicRepairs(rawOutput: string, schemas: SchemaCatalog): { output: string; fixes: string[] } {
+    let config: GenerationConfig;
+    try {
+        config = JSON.parse(rawOutput);
+    } catch {
+        return { output: rawOutput, fixes: [] };
+    }
+    if (!config || typeof config !== "object" || !config.sections || typeof config.sections !== "object") {
+        return { output: rawOutput, fixes: [] };
+    }
+
+    const fixes: string[] = [];
+    const sectionById = new Map(schemas.sectionSchemas.map(s => [s.id, s]));
+    const blockById = new Map(schemas.blockSchemas.map(b => [b.id, b]));
+
+    for (const [sectionId, section] of Object.entries(config.sections)) {
+        if (!section || typeof section !== "object") continue;
+        const sectionSchema = sectionById.get(section.type);
+
+        if (sectionSchema?.settings && section.settings && typeof section.settings === "object") {
+            repairSettingsObject(section.settings, sectionSchema.settings, `sections.${sectionId}.settings`, fixes);
+        }
+
+        if (section.blocks && typeof section.blocks === "object") {
+            const blockIds = Object.keys(section.blocks);
+
+            if (blockIds.length > 0) {
+                if (!Array.isArray(section.block_order)) {
+                    section.block_order = blockIds;
+                    fixes.push(`sections.${sectionId}: generated missing block_order from block keys`);
+                } else {
+                    const knownIds = new Set(blockIds);
+                    const cleaned = section.block_order.filter((id) => knownIds.has(id));
+                    const missing = blockIds.filter(id => !cleaned.includes(id));
+                    if (missing.length > 0 || cleaned.length !== section.block_order.length) {
+                        section.block_order = [...cleaned, ...missing];
+                        fixes.push(`sections.${sectionId}: repaired block_order to match the actual blocks present`);
+                    }
+                }
+            }
+
+            for (const [blockId, block] of Object.entries(section.blocks)) {
+                if (!block || typeof block !== "object") continue;
+                const blockSchema = blockById.get(block.type);
+                if (blockSchema?.settings && block.settings && typeof block.settings === "object") {
+                    repairSettingsObject(block.settings, blockSchema.settings, `sections.${sectionId}.blocks.${blockId}.settings`, fixes);
+                }
+            }
+        }
+    }
+
+    if (fixes.length === 0) return { output: rawOutput, fixes };
+    return { output: JSON.stringify(config), fixes };
+}
+
 export function validateCandidate(config: GenerationConfig, schemas: SchemaCatalog, context: ValidateCandidateContext = {}): ValidationResult {
     const { templateName = "index", knownMerchantData = {}, themeState = null } = context;
 

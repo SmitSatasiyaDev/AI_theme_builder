@@ -5,6 +5,23 @@
  * serializeThemeState, selectGenerationContext) is copied verbatim from the
  * original — see f:\theme-builder\AI_Schema\ai-schema\theme-state.js.
  *
+ * LIVE STATE CONTRACT (2026-08-26): the real theme files on disk
+ * (LOCAL_THEME_ROOT, via local-theme-fs.js) are the ONLY source of truth for
+ * "what does the theme currently look like." buildThemeState() is how every
+ * caller that needs the CURRENT live theme gets it — always a fresh read,
+ * never a cache — because a database snapshot and the real files can drift
+ * (a generation/edit writes the files but the DB row goes stale, or vice
+ * versa), and the edit pipeline silently trusting a stale snapshot is
+ * exactly what caused templates/product.json to lose 14 of its 15 blocks on
+ * 2026-08-26 (an edit resolved against a snapshot the AI schema catalog
+ * cache — not the just-generated real file — remembered as still empty).
+ * saveThemeState()/loadThemeState()/saveThemeStateForStore()/
+ * loadThemeStateForStore() below still exist and the `theme_states` table
+ * still exists, but nothing in the live edit/generate/apply pipeline calls
+ * them anymore — see each function's own doc comment. They're kept only as
+ * building blocks for a possible future rollback/history feature; do not
+ * reach for them to "get the current theme" — call buildThemeState().
+ *
  * What changed and why:
  *   - buildThemeState() reads the theme's current JSON config via
  *     lib/ai-schema/local-theme-fs.js, which reads LOCAL_THEME_ROOT
@@ -12,9 +29,19 @@
  *     live Shopify Admin API theme or the original's local git checkout.
  *     This fetches a fixed, deliberately narrow set of asset keys
  *     (TRACKED_TEMPLATE_KEYS) rather than walking the whole templates/
- *     directory like the original — Phase 3 only targets home-page
- *     generation ("index"), so only the assets that page actually needs are
- *     tracked; extend the list if a later phase targets other templates.
+ *     directory like the original — every template the app's editor/preview
+ *     can target (currently "index" and "product") must be listed here.
+ *     A template missing from this list is invisible to the edit pipeline:
+ *     runTargetedEdit() can't resolve an edit against its real sections, so
+ *     it falls through to proposing a brand-new section against a template
+ *     ThemeState treats as empty — and apply.js writes that fabricated
+ *     empty-minus-one-section state straight over the real file, discarding
+ *     everything the merchant already had. (This happened for real on
+ *     2026-08-26: an edit targeting "product" — untracked at the time —
+ *     wiped templates/product.json down to a single bare `main-product`
+ *     section. See apply.js's own overwrite guard for the second half of
+ *     the fix.) Extend this list the moment the editor/preview gains
+ *     another template tab.
  *   - saveThemeState()/loadThemeState() persist to the `theme_states`
  *     Postgres table (keyed by storeId + themeId) instead of a local JSON
  *     file under ai-schema/output/theme-state/ — the original's `themeId`
@@ -52,6 +79,7 @@ export const DEFAULT_THEME_ID = "default";
 
 export const TRACKED_TEMPLATE_KEYS = [
     { name: "index", sourceFile: "templates/index.json" },
+    { name: "product", sourceFile: "templates/product.json" },
     { name: "header-group", sourceFile: "sections/header-group.json" },
     { name: "footer-group", sourceFile: "sections/footer-group.json" }
 ];
@@ -312,6 +340,12 @@ export async function buildThemeState(options: BuildThemeStateOptions): Promise<
     return themeState;
 }
 
+/**
+ * Not part of the live pipeline (see this file's header) — no current
+ * caller writes here. Kept as a building block for a possible future
+ * rollback/history feature; never treat a row written here as "the current
+ * theme" without also re-verifying it against a fresh buildThemeState().
+ */
 export async function saveThemeStateForStore(storeId: string, themeId: string, themeState: ThemeState): Promise<void> {
     if (!storeId || !themeId) throw new Error("saveThemeStateForStore() requires storeId and themeId");
     await db.insert(themeStates)
@@ -326,6 +360,12 @@ export async function saveThemeStateForStore(storeId: string, themeId: string, t
         });
 }
 
+/**
+ * Not part of the live pipeline (see this file's header) — no current
+ * caller reads here for "the current theme." A row here can be arbitrarily
+ * stale relative to the real files on disk; callers that need the current
+ * live theme must call buildThemeState() instead.
+ */
 export async function loadThemeStateForStore(storeId: string, themeId: string): Promise<ThemeState | null> {
     if (!storeId || !themeId) throw new Error("loadThemeStateForStore() requires storeId and themeId");
     const [row] = await db
@@ -364,11 +404,19 @@ export function parseThemeStateId(compositeId: string | null | undefined): { sto
     return { storeId: parts[0], themeId: parts[1] };
 }
 
+/**
+ * Currently unused by the live pipeline (2026-08-26) — conversational-edit.js
+ * used to call this after every turn to cache the mutated ThemeState so a
+ * later turn/apply could reuse it; that's exactly the stale-cache mechanism
+ * this file's header describes removing. Left defined, not deleted, as a
+ * ready-made primitive if a future rollback/history feature wants it.
+ */
 export async function saveThemeState(themeState: ThemeState): Promise<void> {
     const { storeId, themeId } = parseThemeStateId(themeState.themeId);
     await saveThemeStateForStore(storeId, themeId, themeState);
 }
 
+/** Currently unused by the live pipeline — see saveThemeState()'s note above. */
 export async function loadThemeState(compositeThemeId: string): Promise<ThemeState | null> {
     const { storeId, themeId } = parseThemeStateId(compositeThemeId);
     return loadThemeStateForStore(storeId, themeId);

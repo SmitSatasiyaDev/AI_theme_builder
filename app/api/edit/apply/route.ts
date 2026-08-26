@@ -6,12 +6,13 @@ import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
-import { loadThemeState } from "@/lib/ai-schema/theme-state";
+import { loadSchemas } from "@/lib/ai-schema/ai-client";
+import { buildThemeState } from "@/lib/ai-schema/theme-state";
 import { loadSession, parseSessionId } from "@/lib/ai-schema/conversation-session";
+import { applyOperationsToThemeState } from "@/lib/ai-schema/operations";
+import type { Operation } from "@/lib/ai-schema/types";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
-
-type ResolvedTarget = { templateName?: string | null; type?: string | null } | null;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -44,17 +45,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const resolvedTarget = editSession.resolvedTarget as ResolvedTarget;
-  const writeGlobalSettings = resolvedTarget?.type === "globalSettings";
-  const changedTemplates = !writeGlobalSettings && resolvedTarget?.templateName ? [resolvedTarget.templateName] : [];
+  // Older sessions saved before operations were tracked as an array only
+  // have `lastOperation` (singular) — fall back to that so an in-flight
+  // session isn't broken by this change.
+  const operations: Operation[] = editSession.lastOperations?.length
+    ? editSession.lastOperations
+    : editSession.lastOperation
+      ? [editSession.lastOperation]
+      : [];
 
-  if (changedTemplates.length === 0 && !writeGlobalSettings) {
+  if (operations.length === 0) {
     return NextResponse.json({ error: "Nothing to apply for this session yet" }, { status: 400 });
-  }
-
-  const themeState = await loadThemeState(editSession.themeId);
-  if (!themeState) {
-    return NextResponse.json({ error: "No saved theme state for this session" }, { status: 400 });
   }
 
   const accessToken = decryptSecret(store.accessTokenEncrypted);
@@ -72,7 +73,51 @@ export async function POST(req: NextRequest) {
     .returning();
 
   try {
-    const result = await applyThemeState(themeState, {
+    const schemas = await loadSchemas();
+
+    // The real theme files on disk are the single source of truth — rebuild
+    // fresh here rather than reusing whatever ThemeState the propose step
+    // mutated in memory, then re-run the SAME already-validated operation(s)
+    // against this fresh state. applyOperationToThemeState()/
+    // applyOperationsToThemeState() are pure and deterministic (operations.ts),
+    // so replaying them reproduces the exact same result when nothing else
+    // has touched the theme since — and correctly re-validates (rather than
+    // blindly overwriting) if something has, e.g. the target section was
+    // removed by a different edit in the meantime.
+    const themeState = await buildThemeState({
+      shopDomain: store.shopDomain,
+      accessToken,
+      themeId: store.activeThemeId,
+      schemas,
+      context: { requestId: applyJob.id }
+    });
+
+    const executed = applyOperationsToThemeState(themeState, operations, {
+      themeState,
+      schemas,
+      knownMerchantData: {},
+      requestId: applyJob.id
+    });
+
+    if (!executed.valid) {
+      const message = executed.errors.map((e) => e.message).join("; ");
+      await db.update(generationJobs).set({
+        status: "failed",
+        errorMessage: message,
+        completedAt: new Date()
+      }).where(eq(generationJobs.id, applyJob.id));
+      return NextResponse.json(
+        { error: `This change no longer applies to the current theme (it may have changed since you proposed this edit): ${message}` },
+        { status: 409 }
+      );
+    }
+
+    const changedTemplates = [
+      ...new Set(operations.filter((o) => o.operation !== "update_global_settings").map((o) => o.target!.templateName!))
+    ];
+    const writeGlobalSettings = operations.some((o) => o.operation === "update_global_settings");
+
+    const result = await applyThemeState(executed.themeState, {
       shopDomain: store.shopDomain,
       accessToken,
       themeId: store.activeThemeId,

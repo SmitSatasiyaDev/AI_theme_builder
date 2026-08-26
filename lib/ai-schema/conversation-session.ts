@@ -65,6 +65,7 @@ export function createSession({ sessionId, themeId }: { sessionId?: string; them
         pendingClarification: null,
         resolvedTarget: null,
         lastOperation: null,
+        lastOperations: null,
         lastChangeSummary: null,
         lastMessage: null,
         lastResultStatus: null,
@@ -84,6 +85,7 @@ export function resetSession(session: Session): Session {
         pendingClarification: null,
         resolvedTarget: null,
         lastOperation: null,
+        lastOperations: null,
         lastChangeSummary: null,
         lastMessage: null,
         lastResultStatus: null
@@ -94,17 +96,41 @@ function tokenize(text: string | undefined): string[] {
     return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-export function matchCandidateFromAnswer(candidates: TargetResolutionCandidate[], answerText: string | undefined): TargetResolutionCandidate | null {
+export type CandidateMatchResult =
+    | { type: "single"; candidate: TargetResolutionCandidate }
+    // Merchant named more than one option ("1 and 3", "heading and text
+    // both") — a turn only ever edits ONE target, so this is surfaced
+    // distinctly from "none" rather than silently falling through to the
+    // same dead-end as an answer that matched nothing at all.
+    | { type: "multiple"; candidates: TargetResolutionCandidate[] }
+    | { type: "none" };
+
+export function matchCandidateFromAnswer(candidates: TargetResolutionCandidate[], answerText: string | undefined): CandidateMatchResult {
     const trimmed = (answerText || "").trim();
 
     if (/^\d+\.?$/.test(trimmed)) {
         const num = parseInt(trimmed, 10);
-        if (num >= 1 && num <= candidates.length) return candidates[num - 1];
-        return null;
+        if (num >= 1 && num <= candidates.length) return { type: "single", candidate: candidates[num - 1] };
+        return { type: "none" };
+    }
+
+    // Several numbers named together ("1 and 3", "1, 3", "1 & 2") previously
+    // matched nothing at all (the single-bare-number check above only fires
+    // when the ENTIRE answer is one digit) and fell all the way through to
+    // token scoring, where digits never match any id/type token either —
+    // the merchant's answer was heard, just discarded.
+    const numberMatches = trimmed.match(/\b\d+\b/g);
+    if (numberMatches && numberMatches.length > 1) {
+        const picked = [...new Set(numberMatches.map(n => parseInt(n, 10)))]
+            .filter(n => n >= 1 && n <= candidates.length)
+            .map(n => candidates[n - 1]);
+        if (picked.length > 1) return { type: "multiple", candidates: picked };
+        if (picked.length === 1) return { type: "single", candidate: picked[0] };
+        return { type: "none" };
     }
 
     const answerTokens = new Set(tokenize(trimmed));
-    if (answerTokens.size === 0) return null;
+    if (answerTokens.size === 0) return { type: "none" };
 
     const scored = candidates.map(candidate => {
         const id = ("sectionId" in candidate ? candidate.sectionId : candidate.blockId) || "";
@@ -118,19 +144,24 @@ export function matchCandidateFromAnswer(candidates: TargetResolutionCandidate[]
         return { candidate, score };
     }).filter(entry => entry.score > 0);
 
-    if (scored.length === 0) return null;
+    if (scored.length === 0) return { type: "none" };
     const topScore = Math.max(...scored.map(entry => entry.score));
     const top = scored.filter(entry => entry.score === topScore);
-    return top.length === 1 ? top[0].candidate : null;
+    if (top.length === 1) return { type: "single", candidate: top[0].candidate };
+    // A tie ("heading and text both" scores equally against both "Heading"
+    // and "Text") is the same "named more than one" case as the multi-number
+    // branch above, not a failed match.
+    return { type: "multiple", candidates: top.map(entry => entry.candidate) };
 }
 
-export function mergeClarificationAnswer(pendingClarification: PendingClarification | null, answerText: string | undefined): { resolved: boolean; reason?: string; match?: TargetResolutionCandidate; kind?: string } {
+export function mergeClarificationAnswer(pendingClarification: PendingClarification | null, answerText: string | undefined): { resolved: boolean; reason?: string; match?: TargetResolutionCandidate; candidates?: TargetResolutionCandidate[]; kind?: string } {
     if (!pendingClarification || !("candidates" in pendingClarification) || !Array.isArray(pendingClarification.candidates) || pendingClarification.candidates.length === 0) {
         return { resolved: false, reason: "NO_PENDING_CANDIDATES" };
     }
-    const match = matchCandidateFromAnswer(pendingClarification.candidates, answerText);
-    if (!match) return { resolved: false };
-    return { resolved: true, match, kind: pendingClarification.kind };
+    const result = matchCandidateFromAnswer(pendingClarification.candidates, answerText);
+    if (result.type === "single") return { resolved: true, match: result.candidate, kind: pendingClarification.kind };
+    if (result.type === "multiple") return { resolved: false, reason: "MULTIPLE_SELECTED", candidates: result.candidates, kind: pendingClarification.kind };
+    return { resolved: false, reason: "NO_MATCH" };
 }
 
 // --- Rewritten: sessionId tenant-scoping + Postgres persistence ----------

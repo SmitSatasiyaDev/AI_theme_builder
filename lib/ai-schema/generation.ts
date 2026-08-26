@@ -12,20 +12,36 @@
  *   hard constraints only: allowed_on + forced-exclusive-section rules, no
  *   keyword-based relevance guessing, no LLM call). Falls back to the full
  *   catalog only when zero sections declare the template eligible at all.
+ *   This is the outer safety envelope every later step stays inside of.
+ *        │
+ *        ▼
+ *   Planning-candidate narrowing (retrieval.js's
+ *   narrowEligibleSchemasForPlanning — the SAME deterministic
+ *   retrieval-rules.json keyword matching retrieveRelevantSchemas() uses
+ *   elsewhere, applied on top of the eligible envelope above). On a
+ *   confident keyword match it hands Stage 1 a small, relevant candidate
+ *   list instead of every eligible section; on low/no confidence it falls
+ *   back to the full eligible envelope unchanged — never anything broader,
+ *   never anything the template-eligibility filter didn't already allow.
  *        │
  *        ▼
  *   Stage 1 — PLANNING: the AI itself decides which existing section/block
- *   types to use, in what order and composition, from the FULL
- *   template-eligible name list (not a keyword-narrowed subset) — this is
- *   what lets it generalize to niches/requests retrieval-rules.json never
- *   anticipated. No settings, no content yet. Validated against the
- *   eligible candidate set (never an arbitrary invented type) before
- *   Stage 2 is allowed to run at all.
+ *   types to use, in what order and composition, from the narrowed
+ *   candidate list above (or the full eligible list, when narrowing
+ *   declined to shrink it) — this is what lets it generalize to
+ *   niches/requests retrieval-rules.json never anticipated, while still
+ *   keeping the common case's prompt small. No settings, no content yet.
+ *   Validated against the exact candidate set it was shown (never an
+ *   arbitrary invented type) before Stage 2 is allowed to run at all.
  *        │
  *        ▼
  *   Stage 2 — CONFIGURATION: fill in settings/content for EXACTLY the
- *   approved structure. Validated with the existing, unmodified
- *   validateOutput() (Phase 1) plus a plan-conformance check.
+ *   approved structure, scoped to only the section/block schemas the
+ *   approved plan actually uses (buildConfigurationSystemPrompt). Validated
+ *   with the existing, unmodified validateOutput() (Phase 1) plus a
+ *   plan-conformance check — with a deterministic repair pass
+ *   (validation.js's applyDeterministicRepairs) attempted first, so a
+ *   mechanically-fixable mistake never has to cost a second AI call.
  *
  * Both stages reuse makeAIRequest() and, for Stage 2, validateOutput() —
  * this file adds no new AI-call plumbing or Shopify-JSON validation rules
@@ -39,11 +55,16 @@
 
 import * as instrumentation from "./instrumentation";
 import { buildCapabilityIndex } from "./capability-index";
-import { getTemplateEligibleSchemas, FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE, isEligibleForTemplate } from "./retrieval";
-import { makeAIRequest, validateOutput } from "./ai-client";
+import {
+    getTemplateEligibleSchemas,
+    narrowEligibleSchemasForPlanning,
+    FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE,
+    isEligibleForTemplate
+} from "./retrieval";
+import { makeAIRequest, validateOutput, OPENROUTER_FAST_MODEL } from "./ai-client";
 import { briefToSummaryText } from "./brief-logic";
 import { selectGenerationContext } from "./theme-state";
-import { validateCandidate } from "./validation";
+import { validateCandidate, applyDeterministicRepairs } from "./validation";
 import type {
     Brief,
     CapabilityListing,
@@ -55,6 +76,7 @@ import type {
     SchemaCatalog,
     SectionSchema,
     StagedGenerationResult,
+    StagedGenerationTimings,
     ThemeState
 } from "./types";
 
@@ -304,12 +326,36 @@ interface RunPlanningStageOptions {
     requestId: string;
 }
 
+interface RunPlanningStageResult {
+    plan: GenerationPlan;
+    repaired: boolean;
+    capabilityListing: CapabilityListing;
+    aiCallCount: number;
+    promptChars: number;
+    outputChars: number;
+    durationMs: number;
+}
+
 /**
  * Runs Stage 1 to completion: one AI call, validated; a single bounded
  * repair retry if invalid; throws (does not continue to Stage 2) if the
  * repair attempt is also invalid — §21.
+ *
+ * `retrievedSchemas` is expected to already be the small planning candidate
+ * set (see runStagedGeneration()'s narrowEligibleSchemasForPlanning() call)
+ * — this function does no further narrowing of its own, it just plans
+ * against whatever candidate pool it's handed.
+ *
+ * Uses OPENROUTER_FAST_MODEL: structure selection (which existing
+ * section/block ids, in what order) is a much narrower reasoning task than
+ * Stage 2's content generation, and — like brief-intake.ts's per-turn field
+ * extraction — is well within a fast model's reach. validateGenerationPlan()
+ * plus the one bounded repair attempt below are what keep this safe: an
+ * invalid plan from the fast model still fails closed exactly like an
+ * invalid plan from the primary model would.
  */
-export async function runPlanningStage({ brief, templateName, retrievedSchemas, themeContext, requestId }: RunPlanningStageOptions): Promise<{ plan: GenerationPlan; repaired: boolean; capabilityListing: CapabilityListing }> {
+export async function runPlanningStage({ brief, templateName, retrievedSchemas, themeContext, requestId }: RunPlanningStageOptions): Promise<RunPlanningStageResult> {
+    const startTime = Date.now();
     const forcedHero = determineForcedHeroSection(retrievedSchemas, templateName);
     const maxSections = forcedHero ? MAX_PLAN_SECTIONS - 1 : MAX_PLAN_SECTIONS;
 
@@ -333,13 +379,27 @@ export async function runPlanningStage({ brief, templateName, retrievedSchemas, 
         return { plan, validation: validateGenerationPlan(plan, planningSchemas, templateName, maxSections) };
     }
 
-    const firstContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, null), systemPrompt, 2, { requestId, callType: "generation_plan" });
+    let promptChars = 0;
+    let outputChars = 0;
+    let aiCallCount = 0;
+
+    const firstUserPrompt = buildPlanningUserPrompt(brief, templateName, null);
+    const firstContent = await makeAIRequest(firstUserPrompt, systemPrompt, 2, { requestId, callType: "generation_plan", model: OPENROUTER_FAST_MODEL });
+    aiCallCount++;
+    promptChars += systemPrompt.length + firstUserPrompt.length;
+    outputChars += firstContent?.length ?? 0;
+
     let { plan, validation } = parseAndValidate(firstContent);
     let repaired = false;
 
     if (!validation.valid) {
         repaired = true;
-        const repairContent = await makeAIRequest(buildPlanningUserPrompt(brief, templateName, validation.errors), systemPrompt, 2, { requestId, callType: "generation_plan_repair" });
+        const repairUserPrompt = buildPlanningUserPrompt(brief, templateName, validation.errors);
+        const repairContent = await makeAIRequest(repairUserPrompt, systemPrompt, 2, { requestId, callType: "generation_plan_repair", model: OPENROUTER_FAST_MODEL });
+        aiCallCount++;
+        promptChars += systemPrompt.length + repairUserPrompt.length;
+        outputChars += repairContent?.length ?? 0;
+
         ({ plan, validation } = parseAndValidate(repairContent));
         if (!validation.valid) {
             throw new Error(`Stage 1 (planning) produced an invalid GenerationPlan even after a repair attempt: ${validation.errors.join("; ")}`);
@@ -357,7 +417,7 @@ export async function runPlanningStage({ brief, templateName, retrievedSchemas, 
         }
         : plan!;
 
-    return { plan: finalPlan, repaired, capabilityListing };
+    return { plan: finalPlan, repaired, capabilityListing, aiCallCount, promptChars, outputChars, durationMs: Date.now() - startTime };
 }
 
 // ---------------------------------------------------------------------------
@@ -481,32 +541,58 @@ interface RunConfigurationStageOptions {
     requestId: string;
 }
 
+interface RunConfigurationStageResult {
+    config: GenerationConfig | null;
+    warnings: string[];
+    repaired: boolean;
+    aiCallCount: number;
+    promptChars: number;
+    outputChars: number;
+    deterministicFixCount: number;
+    durationMs: number;
+    validationMs: number;
+}
+
 /**
  * Runs Stage 2 to completion against an ALREADY-VALID plan: one AI call,
  * validated via the existing (unmodified) validateOutput() plus
  * matchesPlan(); a single bounded repair retry if invalid; throws if the
  * repair attempt is also invalid — §21.
+ *
+ * Before each validation pass, applyDeterministicRepairs() (validation.ts)
+ * mechanically fixes the class of mistakes that don't need another AI call
+ * to resolve (a missing block_order, a stringified boolean/number, an
+ * un-wrapped richtext value, a hallucinated image/product reference, an
+ * undeclared setting key) — so the AI repair call below is only ever spent
+ * on mistakes that genuinely need the model's judgment (wrong structure,
+ * wrong type, a setting value that's simply wrong rather than
+ * wrong-shaped).
  */
-export async function runConfigurationStage({ brief, plan, retrievedSchemas, themeContext, requestId }: RunConfigurationStageOptions): Promise<{ config: GenerationConfig | null; warnings: string[]; repaired: boolean }> {
+export async function runConfigurationStage({ brief, plan, retrievedSchemas, themeContext, requestId }: RunConfigurationStageOptions): Promise<RunConfigurationStageResult> {
     const systemPrompt = buildConfigurationSystemPrompt(plan, retrievedSchemas);
+    let validationMs = 0;
 
     function validate(aiOutput: string, repairAttempt: number): { config: GenerationConfig | null; warnings: string[]; valid: boolean; errors: string[] } {
         const startTime = Date.now();
         const outputValidation = validateOutput(aiOutput, retrievedSchemas, { requestId });
         if (!outputValidation.valid) {
+            const durationMs = Date.now() - startTime;
+            validationMs += durationMs;
             instrumentation.logCandidateValidation({
                 requestId, stage: "staged_configuration", templateName: plan.templateName,
                 valid: false, errorCount: 1, candidateChars: aiOutput.length, repairAttempt,
-                durationMs: Date.now() - startTime
+                durationMs
             });
             return { config: null, warnings: [], valid: false, errors: [outputValidation.error!] };
         }
         const planValidation = matchesPlan(outputValidation.config!, plan);
         if (!planValidation.valid) {
+            const durationMs = Date.now() - startTime;
+            validationMs += durationMs;
             instrumentation.logCandidateValidation({
                 requestId, stage: "staged_configuration", templateName: plan.templateName,
                 valid: false, errorCount: planValidation.errors.length, candidateChars: aiOutput.length, repairAttempt,
-                durationMs: Date.now() - startTime
+                durationMs
             });
             return { config: null, warnings: outputValidation.warnings || [], valid: false, errors: planValidation.errors };
         }
@@ -515,6 +601,8 @@ export async function runConfigurationStage({ brief, plan, retrievedSchemas, the
         // type/enum/range, product/collection hallucination guard) layered
         // on top of the already-passed Phase 1/5 checks (§5's pipeline).
         const candidateValidation = validateCandidate(outputValidation.config!, retrievedSchemas, { templateName: plan.templateName });
+        const durationMs = Date.now() - startTime;
+        validationMs += durationMs;
         instrumentation.logCandidateValidation({
             requestId, stage: "staged_configuration", templateName: plan.templateName,
             valid: candidateValidation.valid,
@@ -523,7 +611,7 @@ export async function runConfigurationStage({ brief, plan, retrievedSchemas, the
             errorCodes: [...new Set(candidateValidation.errors.map(e => e.code))],
             candidateChars: aiOutput.length,
             repairAttempt,
-            durationMs: Date.now() - startTime
+            durationMs
         });
         return {
             config: candidateValidation.valid ? outputValidation.config! : null,
@@ -533,20 +621,62 @@ export async function runConfigurationStage({ brief, plan, retrievedSchemas, the
         };
     }
 
-    const firstOutput = await makeAIRequest(buildConfigurationUserPrompt(brief, plan, themeContext, null), systemPrompt, 3, { requestId, callType: "staged_configuration" });
-    let result = validate(firstOutput!, 0);
+    const startTime = Date.now();
+    let promptChars = 0;
+    let outputChars = 0;
+    let aiCallCount = 0;
+    let deterministicFixCount = 0;
+
+    const firstUserPrompt = buildConfigurationUserPrompt(brief, plan, themeContext, null);
+    const firstOutput = await makeAIRequest(firstUserPrompt, systemPrompt, 3, { requestId, callType: "staged_configuration" });
+    aiCallCount++;
+    promptChars += systemPrompt.length + firstUserPrompt.length;
+    outputChars += firstOutput?.length ?? 0;
+
+    const firstRepair = applyDeterministicRepairs(firstOutput!, retrievedSchemas);
+    deterministicFixCount += firstRepair.fixes.length;
+    if (firstRepair.fixes.length > 0) {
+        instrumentation.logCandidateValidation({
+            requestId, stage: "staged_configuration_deterministic_repair", templateName: plan.templateName,
+            valid: true, errorCount: 0, warningCount: firstRepair.fixes.length, candidateChars: firstRepair.output.length, repairAttempt: 0, durationMs: 0
+        });
+    }
+    let result = validate(firstRepair.output, 0);
     let repaired = false;
 
     if (!result.valid) {
         repaired = true;
-        const repairOutput = await makeAIRequest(buildConfigurationUserPrompt(brief, plan, themeContext, result.errors), systemPrompt, 3, { requestId, callType: "staged_configuration_repair" });
-        result = validate(repairOutput!, 1);
+        const repairUserPrompt = buildConfigurationUserPrompt(brief, plan, themeContext, result.errors);
+        const repairOutput = await makeAIRequest(repairUserPrompt, systemPrompt, 3, { requestId, callType: "staged_configuration_repair" });
+        aiCallCount++;
+        promptChars += systemPrompt.length + repairUserPrompt.length;
+        outputChars += repairOutput?.length ?? 0;
+
+        const secondRepair = applyDeterministicRepairs(repairOutput!, retrievedSchemas);
+        deterministicFixCount += secondRepair.fixes.length;
+        if (secondRepair.fixes.length > 0) {
+            instrumentation.logCandidateValidation({
+                requestId, stage: "staged_configuration_deterministic_repair", templateName: plan.templateName,
+                valid: true, errorCount: 0, warningCount: secondRepair.fixes.length, candidateChars: secondRepair.output.length, repairAttempt: 1, durationMs: 0
+            });
+        }
+        result = validate(secondRepair.output, 1);
         if (!result.valid) {
             throw new Error(`Stage 2 (configuration) produced invalid output even after a repair attempt: ${result.errors.join("; ")}`);
         }
     }
 
-    return { config: result.config, warnings: result.warnings, repaired };
+    return {
+        config: result.config,
+        warnings: result.warnings,
+        repaired,
+        aiCallCount,
+        promptChars,
+        outputChars,
+        deterministicFixCount,
+        durationMs: Date.now() - startTime,
+        validationMs
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -591,32 +721,66 @@ export async function runStagedGeneration(options: RunStagedGenerationOptions): 
 
     const startTime = Date.now();
 
-    // Hard-constraint-only eligibility filter — the AI itself chooses which
-    // of the eligible sections/blocks to use in Stage 1, not a keyword
-    // matcher (see file header).
-    const retrieved = getTemplateEligibleSchemas(schemas, templateName, requestId);
+    // Hard-constraint-only eligibility filter — allowed_on + forced-exclusive-section
+    // rules, no keyword guessing. This remains the outer safety envelope Stage 2's
+    // scoped schemas and validateGenerationPlan()/isEligibleForTemplate() are checked
+    // against (see file header).
+    const eligibleStart = Date.now();
+    const eligible = getTemplateEligibleSchemas(schemas, templateName, requestId);
+
+    // Narrows THAT envelope further, down to a small keyword-relevant candidate set,
+    // for Stage 1's prompt specifically — reusing the same deterministic
+    // retrieval-rules.json matching retrieveRelevantSchemas() uses elsewhere. Every
+    // fallback branch inside narrowEligibleSchemasForPlanning() returns the full
+    // `eligible` set unchanged, so this can only ever shrink what Stage 1 sees, never
+    // expand it beyond the already-safe template-eligible envelope — Stage 2 continues
+    // to scope itself from the plan's approved types regardless (buildConfigurationSystemPrompt).
+    const planningCandidates = narrowEligibleSchemasForPlanning(eligible, templateName, briefToSummaryText(brief), requestId);
+    const retrievalMs = Date.now() - eligibleStart;
 
     // §7/§25 — bounded, deterministic ThemeState slice; never the whole state.
     const themeContext: GenerationContext = themeState
         ? selectGenerationContext(themeState, templateName)
         : { templateName, templateExists: false, existingSectionOrder: [], existingSections: [], globalSettingsCurrent: {} };
 
-    const { plan, repaired: planRepaired } = await runPlanningStage({ brief, templateName, retrievedSchemas: retrieved, themeContext, requestId });
-    const { config, warnings, repaired: configRepaired } = await runConfigurationStage({ brief, plan, retrievedSchemas: retrieved, themeContext, requestId });
+    const planningResult = await runPlanningStage({ brief, templateName, retrievedSchemas: planningCandidates, themeContext, requestId });
+    const { plan, repaired: planRepaired } = planningResult;
+    const configResult = await runConfigurationStage({ brief, plan, retrievedSchemas: eligible, themeContext, requestId });
+    const { config, warnings, repaired: configRepaired } = configResult;
 
     const durationMs = Date.now() - startTime;
+    const aiCallCount = planningResult.aiCallCount + configResult.aiCallCount;
+    const retryCount = (planRepaired ? 1 : 0) + (configRepaired ? 1 : 0);
+    const promptChars = planningResult.promptChars + configResult.promptChars;
+    const outputChars = planningResult.outputChars + configResult.outputChars;
+    const timings: StagedGenerationTimings = {
+        retrievalMs,
+        planningMs: planningResult.durationMs,
+        configurationMs: configResult.durationMs,
+        validationMs: configResult.validationMs,
+        totalMs: durationMs
+    };
 
     instrumentation.logPipeline({
         requestId,
         success: true,
         stage: "staged_generation",
         templateName,
-        retrievalMode: retrieved.retrievalMeta.mode,
-        selectedSectionCount: retrieved.retrievalMeta.selectedSectionCount,
-        selectedBlockCount: retrieved.retrievalMeta.selectedBlockCount,
+        retrievalMode: planningCandidates.retrievalMeta.mode,
+        selectedSectionCount: planningCandidates.retrievalMeta.selectedSectionCount,
+        selectedBlockCount: planningCandidates.retrievalMeta.selectedBlockCount,
+        eligibleSectionCount: eligible.sectionSchemas.length,
+        eligibleBlockCount: eligible.blockSchemas.length,
         planRepaired,
         configRepaired,
-        aiCallCount: 2 + (planRepaired ? 1 : 0) + (configRepaired ? 1 : 0),
+        aiCallCount,
+        retryCount,
+        deterministicFixCount: configResult.deterministicFixCount,
+        promptChars,
+        outputChars,
+        estimatedPromptTokens: instrumentation.estimateTokensFromChars(promptChars),
+        estimatedOutputTokens: instrumentation.estimateTokensFromChars(outputChars),
+        timings,
         durationMs
     });
 
@@ -625,11 +789,18 @@ export async function runStagedGeneration(options: RunStagedGenerationOptions): 
         plan,
         config,
         warnings,
-        retrievalMeta: retrieved.retrievalMeta,
+        retrievalMeta: planningCandidates.retrievalMeta,
         themeContext,
         planRepaired,
         configRepaired,
-        aiCallCount: 2 + (planRepaired ? 1 : 0) + (configRepaired ? 1 : 0),
-        durationMs
+        aiCallCount,
+        durationMs,
+        timings,
+        retryCount,
+        deterministicFixCount: configResult.deterministicFixCount,
+        promptChars,
+        outputChars,
+        estimatedPromptTokens: instrumentation.estimateTokensFromChars(promptChars),
+        estimatedOutputTokens: instrumentation.estimateTokensFromChars(outputChars)
     };
 }

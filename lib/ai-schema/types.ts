@@ -289,6 +289,25 @@ export interface ChangeSummary {
     preserved: boolean;
 }
 
+/**
+ * A human-checkable identity for whatever section a proposal/apply actually
+ * touched — derived from the POST-execution ThemeState (deriveResolvedTarget
+ * follows the same "always post-execution" rule for the same reason:
+ * add_section's real id, and a since-changed order/position, only exist
+ * after execution). Surfaced to the merchant alongside "Proposed change" so
+ * a wrong target-resolution guess (§ edit-pipeline.js's AI-assisted
+ * resolution) is visible BEFORE "Apply to store", not just discoverable
+ * after the fact by comparing the live preview.
+ */
+export interface TargetSummary {
+    templateName: string;
+    sectionId: string;
+    sectionType?: string;
+    position?: number;
+    totalSections?: number;
+    preview?: string;
+}
+
 export type TargetResolutionCandidate = { sectionId: string; type: string | undefined; score?: number } | { blockId: string; type: string | undefined; score?: number };
 
 export type SectionTargetResolution =
@@ -378,6 +397,7 @@ export interface EditTurnResult {
     targetStatus?: string;
     templateName?: string;
     sectionId?: string;
+    blockId?: string;
     candidates?: TargetResolutionCandidate[];
     questions?: string[];
     errors?: ValidationIssue[];
@@ -385,6 +405,8 @@ export interface EditTurnResult {
     operations?: Operation[];
     changeSummary?: ChangeSummary | null;
     changeSummaries?: ChangeSummary[];
+    targetSummary?: TargetSummary | null;
+    targetSummaries?: TargetSummary[];
     themeState?: ThemeState;
     applyResult?: unknown;
     repaired?: boolean;
@@ -400,6 +422,18 @@ export interface Session {
     pendingClarification: PendingClarification | null;
     resolvedTarget: ResolvedTarget | null;
     lastOperation: (Operation & { id: string }) | null;
+    /**
+     * Every operation from the turn that produced `lastOperation` — a single
+     * item for a single-op turn, all of them (in order) for a multi-op turn.
+     * The current theme's real files on disk are the only live ThemeState
+     * source now (see theme-state.ts's buildThemeState) — there is no cached
+     * post-execution ThemeState to reuse at apply time, so `/api/edit/apply`
+     * rebuilds fresh from disk and replays exactly these operations against
+     * it via applyOperationsToThemeState() instead. Storing the operations
+     * (not the resulting state) is what lets that replay be deterministic
+     * and re-validate against whatever is actually on disk *now*.
+     */
+    lastOperations: (Operation & { id: string })[] | null;
     lastChangeSummary: ChangeSummary | null;
     lastMessage: string | null;
     lastResultStatus: string | null;
@@ -469,6 +503,14 @@ export interface PlainValidationResult {
     errors: string[];
 }
 
+export interface StagedGenerationTimings {
+    retrievalMs: number;
+    planningMs: number;
+    configurationMs: number;
+    validationMs: number;
+    totalMs: number;
+}
+
 export interface StagedGenerationResult {
     templateName: string;
     plan: GenerationPlan;
@@ -480,4 +522,13 @@ export interface StagedGenerationResult {
     configRepaired: boolean;
     aiCallCount: number;
     durationMs: number;
+    // Added for pipeline-speed instrumentation (see generation.ts) — all
+    // additive, existing fields above are unchanged.
+    timings: StagedGenerationTimings;
+    retryCount: number;
+    deterministicFixCount: number;
+    promptChars: number;
+    outputChars: number;
+    estimatedPromptTokens: number;
+    estimatedOutputTokens: number;
 }

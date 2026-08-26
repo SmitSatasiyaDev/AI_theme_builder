@@ -1,6 +1,7 @@
 import type { Liquid } from "liquidjs";
 import { createShopifyLiquid } from "@/lib/shopify-compat/engine";
-import { BlockInstance, buildGlobalContext, buildSectionDrop } from "@/lib/shopify-compat/drops";
+import { BlockInstance, buildGlobalContext, buildProductDrop, buildSectionDrop } from "@/lib/shopify-compat/drops";
+import type { ShopifyPreviewProduct } from "@/lib/shopify/client";
 import { TemplateReader } from "./template-loader";
 import { applyPreviewShims } from "./preview-shims";
 import { loadThemeSettings } from "./theme-settings";
@@ -13,11 +14,12 @@ import type { GenerationConfig, SectionInstance } from "@/lib/ai-schema/types";
 /**
  * Renders a Shopify-native template JSON — the same shape `GenerationConfig` already is
  * (lib/ai-schema/types.ts) — through the real Base Theme's layout, using LiquidJS plus the
- * shopify-compat shim layer. Ported from Shopforge's template-renderer.ts: that version also
- * threads a scraped `NormalizedProduct` through the render (Shopforge imports real product
- * data); this app has no product data source, so there is no `product` option here — the
- * theme's own `{% if product %}` guards just take the empty branch, same as any page without
- * one (see shopify-compat/drops.ts).
+ * shopify-compat shim layer. Ported from Shopforge's template-renderer.ts: that version threads
+ * a scraped `NormalizedProduct` through the render; this app is always linked to a live Shopify
+ * store instead, so `product` here is a real product fetched via Admin GraphQL
+ * (lib/shopify/client.ts's `getRepresentativeProductForOrg`). When absent (store has no
+ * products yet), the theme's own `{% if product %}` guards take the empty branch, same as
+ * Shopforge's partial-import case.
  */
 export interface RenderTemplateOptions {
   /** The template JSON to render — a completed generation job's config, or the current on-disk state. */
@@ -26,6 +28,8 @@ export interface RenderTemplateOptions {
   readTemplate: TemplateReader;
   /** Which Shopify template this is, so `request.page_type` and `template.name` are right. */
   templateName?: string;
+  /** A real product from the connected store, for `{% if product %}` sections/blocks. */
+  product?: ShopifyPreviewProduct | null;
 }
 
 async function readJson<T>(readTemplate: TemplateReader, path: string, fallback: T): Promise<T> {
@@ -227,6 +231,7 @@ export async function renderTemplate(opts: RenderTemplateOptions): Promise<strin
       locale,
     }),
     linklists: defaultLinkLists(),
+    product: buildProductDrop(opts.product ?? null),
   };
   (globals.request as Record<string, unknown>).page_type = templateName;
   (globals.template as Record<string, unknown>).name = templateName;

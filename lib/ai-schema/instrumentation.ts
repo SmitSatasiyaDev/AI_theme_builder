@@ -10,9 +10,94 @@
  */
 
 import { randomUUID } from "crypto";
+import fs from "fs";
+import path from "path";
 
 export function nextRequestId(prefix = "req"): string {
     return `${prefix}_${randomUUID()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Full AI call tracing — OFF by default (opt-in via AI_DEBUG_LOG=true). This
+// is deliberately separate from logAICall() above: logAICall's console line
+// exists precisely BECAUSE it never logs full prompt/response content (see
+// §32/§34 in this file's other log*() functions) — merchant content, full
+// section text, etc. This one exists for the opposite reason: local
+// debugging of "what did we actually send the AI, and what did it actually
+// say back," so it writes full system/user prompts and the full raw
+// response to a file (never the console, never enabled by default) — a
+// developer opts in locally, and AI_DEBUG_LOG_PATH defaults under
+// gitignored logs/ so it's never committed.
+// ---------------------------------------------------------------------------
+
+const AI_DEBUG_LOG_ENABLED = process.env.AI_DEBUG_LOG === "true";
+const AI_DEBUG_LOG_PATH = process.env.AI_DEBUG_LOG_PATH || path.join(process.cwd(), "logs", "ai-debug.jsonl");
+let debugLogDirEnsured = false;
+
+export interface AITokenUsage {
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    totalTokens?: number | null;
+}
+
+/**
+ * Appends ONE full record of an AI provider call to AI_DEBUG_LOG_PATH (JSON
+ * Lines — one JSON object per line, easy to tail/grep). No-op unless
+ * AI_DEBUG_LOG=true is set, and never throws — a logging failure must never
+ * break the pipeline it's observing.
+ */
+export function logAICallDetail({
+    requestId,
+    callType,
+    model,
+    systemPrompt,
+    userPrompt,
+    responseContent = null,
+    usage = null,
+    durationMs,
+    retryCount = 0,
+    attempts = 1,
+    success,
+    error = null
+}: {
+    requestId?: string;
+    callType?: string;
+    model?: string;
+    systemPrompt?: string;
+    userPrompt?: string;
+    responseContent?: string | null;
+    usage?: AITokenUsage | null;
+    durationMs?: number;
+    retryCount?: number;
+    attempts?: number;
+    success?: boolean;
+    error?: string | null;
+}): void {
+    if (!AI_DEBUG_LOG_ENABLED) return;
+    try {
+        if (!debugLogDirEnsured) {
+            fs.mkdirSync(path.dirname(AI_DEBUG_LOG_PATH), { recursive: true });
+            debugLogDirEnsured = true;
+        }
+        const entry = {
+            timestamp: new Date().toISOString(),
+            requestId,
+            callType,
+            model,
+            durationMs,
+            retryCount,
+            attempts,
+            success,
+            error,
+            usage,
+            systemPrompt,
+            userPrompt,
+            responseContent
+        };
+        fs.appendFileSync(AI_DEBUG_LOG_PATH, `${JSON.stringify(entry)}\n`, "utf8");
+    } catch (loggingError) {
+        console.warn(`⚠️  AI_DEBUG_LOG write failed: ${(loggingError as Error).message}`);
+    }
 }
 
 export function estimateTokensFromChars(chars: number | null | undefined): number {
@@ -38,6 +123,7 @@ export function logAICall({
     model,
     promptChars = 0,
     outputChars = 0,
+    usage = null,
     durationMs,
     retryCount = 0,
     attempts = 1,
@@ -49,6 +135,7 @@ export function logAICall({
     model?: string;
     promptChars?: number;
     outputChars?: number;
+    usage?: AITokenUsage | null;
     durationMs?: number;
     retryCount?: number;
     attempts?: number;
@@ -63,6 +150,12 @@ export function logAICall({
         estimatedInputTokens: estimateTokensFromChars(promptChars),
         outputChars,
         estimatedOutputTokens: estimateTokensFromChars(outputChars),
+        // Real usage from the provider's response, when it returned one —
+        // estimatedInput/OutputTokens above are the chars/4 fallback used
+        // when it didn't (see this file's header).
+        promptTokens: usage ? usage.promptTokens ?? null : null,
+        completionTokens: usage ? usage.completionTokens ?? null : null,
+        totalTokens: usage ? usage.totalTokens ?? null : null,
         durationMs,
         retryCount,
         attempts,
@@ -491,6 +584,68 @@ export function logEditPipeline({
         repaired,
         aiCallCount,
         durationMs
+    });
+}
+
+/**
+ * Log ONE consolidated end-to-end summary for a worker.js generation job —
+ * both templates combined. Everything in here is already logged piecemeal
+ * by the calls above (AI_CALL/RETRIEVAL/CANDIDATE_VALIDATION/MERGE/PIPELINE)
+ * — this is purely a single, easy-to-grep line answering "where did the
+ * time/AI calls/tokens for this job actually go" without reconstructing it
+ * from many separate log lines by hand.
+ */
+export function logGenerationSummary({
+    requestId,
+    jobId,
+    retrievalMs,
+    indexPlanningMs,
+    productPlanningMs,
+    indexConfigurationMs,
+    productConfigurationMs,
+    validationMs,
+    mergeMs,
+    totalMs,
+    aiCallCount,
+    retryCount,
+    deterministicFixCount,
+    promptChars = 0,
+    outputChars = 0
+}: {
+    requestId?: string;
+    jobId?: string;
+    retrievalMs?: number;
+    indexPlanningMs?: number;
+    productPlanningMs?: number;
+    indexConfigurationMs?: number;
+    productConfigurationMs?: number;
+    validationMs?: number;
+    mergeMs?: number;
+    totalMs?: number;
+    aiCallCount?: number;
+    retryCount?: number;
+    deterministicFixCount?: number;
+    promptChars?: number;
+    outputChars?: number;
+}) {
+    return logEvent("GENERATION_SUMMARY", {
+        requestId,
+        jobId,
+        retrievalMs,
+        indexPlanningMs,
+        productPlanningMs,
+        indexConfigurationMs,
+        productConfigurationMs,
+        validationMs,
+        mergeMs,
+        totalMs,
+        aiCallCount,
+        retryCount,
+        deterministicFixCount,
+        promptChars,
+        estimatedPromptTokens: estimateTokensFromChars(promptChars),
+        outputChars,
+        estimatedOutputTokens: estimateTokensFromChars(outputChars)
     });
 }
 

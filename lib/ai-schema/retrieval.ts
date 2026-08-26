@@ -454,3 +454,120 @@ export function getTemplateEligibleSchemas(
         }
     };
 }
+
+/**
+ * Narrows an already-template-eligible candidate set (getTemplateEligibleSchemas()'s
+ * output) down to a small, keyword-relevant subset for Stage 1 Planning's prompt —
+ * reusing the SAME deterministic keyword→category/tag matching retrieveRelevantSchemas()
+ * uses above, rather than inventing a second selection algorithm.
+ *
+ * This is intentionally a NARROWING pass on top of the eligible envelope, not a
+ * replacement for it: unlike retrieveRelevantSchemas()'s own FULL_FALLBACK (which
+ * returns the entire unfiltered catalog, including sections ineligible for this
+ * template), every fallback branch here returns `eligible` unchanged — so the worst
+ * case is exactly today's staged-generation behavior (the full template-eligible set),
+ * never anything broader. Planning only ever loses candidates here, never gains
+ * ineligible ones.
+ *
+ * Skipped (returns `eligible` as-is) when:
+ *   - the template already resolved to a forced-exclusive single section (nothing to
+ *     narrow — see FORCED_EXCLUSIVE_SECTION_BY_TEMPLATE)
+ *   - the eligible set is already at or below the template's floor (narrowing further
+ *     could only shrink below the minimum variety the plan needs)
+ *   - no retrieval rule matched the brief text at all (zero confidence — narrowing on
+ *     no signal risks silently excluding something the merchant actually needs)
+ *   - the confident match still lands below the floor
+ */
+export function narrowEligibleSchemasForPlanning(
+    eligible: RetrievedSchemaCatalog,
+    templateName: string,
+    userPrompt: string,
+    requestId: string = instrumentation.nextRequestId("planning-narrow")
+): RetrievedSchemaCatalog {
+    if (eligible.retrievalMeta.forcedExclusiveApplied) return eligible;
+
+    const floor = MIN_SECTIONS_FLOOR[templateName] ?? DEFAULT_MIN_SECTIONS_FLOOR;
+    if (eligible.sectionSchemas.length <= floor) return eligible;
+
+    const { matchedCategories, matchedTags, ruleMatches, defaultApplied } = matchRules(userPrompt);
+    const fullCharCount = schemaCharCount(eligible.sectionSchemas, eligible.blockSchemas);
+
+    if (ruleMatches.length === 0) {
+        instrumentation.logRetrieval({
+            requestId, mode: "PLANNING_NARROW_SKIPPED", templateName,
+            fallbackReason: "no retrieval rules matched the brief text (zero confidence) — planning sees the full eligible set",
+            candidateSectionCount: eligible.sectionSchemas.length, selectedSectionCount: eligible.sectionSchemas.length,
+            candidateBlockCount: eligible.blockSchemas.length, selectedBlockCount: eligible.blockSchemas.length,
+            fullSchemaChars: fullCharCount, retrievedSchemaChars: fullCharCount,
+            estimatedFullTokens: instrumentation.estimateTokensFromChars(fullCharCount),
+            estimatedRetrievedTokens: instrumentation.estimateTokensFromChars(fullCharCount)
+        });
+        return eligible;
+    }
+
+    const index = buildCapabilityIndex(eligible);
+    let selectedIds = index.sections
+        .filter(s => matchedCategories.includes(s.category) || s.tags.some(t => matchedTags.includes(t)))
+        .map(s => s.id);
+
+    const heroIds = index.sections.filter(s => s.category === "hero").map(s => s.id);
+    let baselineHeroApplied = false;
+    if (heroIds.length > 0 && !selectedIds.includes(heroIds[0]) && !selectedIds.some(id => heroIds.includes(id))) {
+        selectedIds = [heroIds[0], ...selectedIds];
+        baselineHeroApplied = true;
+    }
+    selectedIds = [...new Set(selectedIds)];
+
+    if (selectedIds.length < floor) {
+        instrumentation.logRetrieval({
+            requestId, mode: "PLANNING_NARROW_BELOW_FLOOR", templateName,
+            fallbackReason: `narrowed section count ${selectedIds.length} is below the floor of ${floor} — planning sees the full eligible set`,
+            ruleMatches, defaultRuleApplied: defaultApplied,
+            candidateSectionCount: eligible.sectionSchemas.length, selectedSectionCount: eligible.sectionSchemas.length,
+            candidateBlockCount: eligible.blockSchemas.length, selectedBlockCount: eligible.blockSchemas.length,
+            fullSchemaChars: fullCharCount, retrievedSchemaChars: fullCharCount,
+            estimatedFullTokens: instrumentation.estimateTokensFromChars(fullCharCount),
+            estimatedRetrievedTokens: instrumentation.estimateTokensFromChars(fullCharCount)
+        });
+        return eligible;
+    }
+
+    const sectionById = new Map(eligible.sectionSchemas.map(s => [s.id, s]));
+    const selectedSections = selectedIds
+        .map(id => sectionById.get(id))
+        .filter((s): s is SectionSchema => Boolean(s));
+
+    const neededBlockIds = new Set<string>();
+    for (const section of selectedSections) {
+        for (const blockId of allowedBlockIds(section)) neededBlockIds.add(blockId);
+    }
+    const selectedBlocks = eligible.blockSchemas.filter(b => neededBlockIds.has(b.id));
+    const narrowedCharCount = schemaCharCount(selectedSections, selectedBlocks);
+
+    instrumentation.logRetrieval({
+        requestId, mode: "PLANNING_NARROWED", templateName, fallbackReason: null,
+        ruleMatches, defaultRuleApplied: defaultApplied, baselineHeroApplied,
+        candidateSectionCount: eligible.sectionSchemas.length, selectedSectionCount: selectedSections.length,
+        candidateBlockCount: eligible.blockSchemas.length, selectedBlockCount: selectedBlocks.length,
+        fullSchemaChars: fullCharCount, retrievedSchemaChars: narrowedCharCount,
+        estimatedFullTokens: instrumentation.estimateTokensFromChars(fullCharCount),
+        estimatedRetrievedTokens: instrumentation.estimateTokensFromChars(narrowedCharCount)
+    });
+
+    return {
+        globalSchema: eligible.globalSchema,
+        sectionSchemas: selectedSections,
+        blockSchemas: selectedBlocks,
+        retrievalMeta: {
+            ...eligible.retrievalMeta,
+            mode: "PLANNING_NARROWED",
+            matchedCategories,
+            matchedTags,
+            ruleMatches,
+            defaultRuleApplied: defaultApplied,
+            baselineHeroApplied,
+            selectedSectionCount: selectedSections.length,
+            selectedBlockCount: selectedBlocks.length
+        }
+    };
+}

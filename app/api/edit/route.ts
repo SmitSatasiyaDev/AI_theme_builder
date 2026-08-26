@@ -4,7 +4,7 @@ import { requireOrgMembership } from "@/lib/actions/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { loadSchemas } from "@/lib/ai-schema/ai-client";
-import { buildThemeState, loadThemeState, composeThemeStateId } from "@/lib/ai-schema/theme-state";
+import { buildThemeState, composeThemeStateId } from "@/lib/ai-schema/theme-state";
 import { composeSessionId, parseSessionId } from "@/lib/ai-schema/conversation-session";
 import { runConversationalEdit } from "@/lib/ai-schema/conversational-edit";
 
@@ -49,21 +49,20 @@ export async function POST(req: NextRequest) {
   const fullSchemas = await loadSchemas();
   const themeCompositeId = composeThemeStateId(store.id, store.activeThemeId);
 
-  let themeState = await loadThemeState(themeCompositeId);
-  if (!themeState) {
-    themeState = await buildThemeState({
-      shopDomain: store.shopDomain,
-      accessToken,
-      themeId: store.activeThemeId,
-      schemas: fullSchemas,
-      context: { requestId: sessionId }
-    });
-    // Rekey to the composite storage id — see theme-state.js's comment on
-    // saveThemeState/loadThemeState for why this is safe (nothing reads
-    // .themeId to make a Shopify API call; real calls always take
-    // shopDomain/accessToken/themeId as explicit options).
-    themeState.themeId = themeCompositeId;
-  }
+  // The real theme files on disk are the single source of truth for the
+  // current live theme — every edit turn rebuilds ThemeState fresh here
+  // rather than reading a cached snapshot, so the AI is always resolving
+  // against (and the edit pipeline is always validating against) what's
+  // actually there right now, never a stale copy from before some other
+  // apply (a generation, or another session's edit) changed it.
+  const themeState = await buildThemeState({
+    shopDomain: store.shopDomain,
+    accessToken,
+    themeId: store.activeThemeId,
+    schemas: fullSchemas,
+    context: { requestId: sessionId }
+  });
+  themeState.themeId = themeCompositeId;
 
   try {
     const result = await runConversationalEdit(message, {

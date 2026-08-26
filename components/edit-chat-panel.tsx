@@ -10,11 +10,22 @@ type EditTurnResult = {
   candidates?: { sectionId?: string; blockId?: string; type: string }[];
   changeSummary?: unknown;
   changeSummaries?: unknown[];
+  targetSummary?: TargetSummary | null;
+  targetSummaries?: TargetSummary[];
   errors?: { message: string }[];
   message?: string;
   operation?: { operation: string };
   operations?: { operation: string }[];
   error?: string;
+};
+
+type TargetSummary = {
+  templateName: string;
+  sectionId: string;
+  sectionType?: string;
+  position?: number;
+  totalSections?: number;
+  preview?: string;
 };
 
 type ChatMessage = {
@@ -67,6 +78,20 @@ const MORE_SECTION_SUGGESTIONS = [
   { label: "+ Store colors changer", message: "Add a store colors changer section" }
 ];
 
+// Names WHICH section a proposal actually resolved to (position on the page
+// + its current visible text) so a wrong target-resolution guess is
+// something the merchant can catch here, before "Apply to store" — rather
+// than only discoverable afterwards by comparing the live preview.
+function describeTarget(target: TargetSummary): string {
+  const templateLabel = target.templateName === "index" ? "Home" : target.templateName;
+  const positionLabel = target.position && target.totalSections
+    ? `, section ${target.position} of ${target.totalSections} on ${templateLabel}`
+    : `, on ${templateLabel}`;
+  const typeLabel = target.sectionType ? ` (${target.sectionType})` : "";
+  const previewLabel = target.preview ? ` — currently shows: "${target.preview}"` : "";
+  return `"${target.sectionId}"${typeLabel}${positionLabel}${previewLabel}`;
+}
+
 function summarizeResult(result: EditTurnResult): string {
   if (result.error) return `Something went wrong: ${result.error}`;
 
@@ -77,7 +102,13 @@ function summarizeResult(result: EditTurnResult): string {
       const ops = result.operations
         ? result.operations.map((o) => o.operation).join(", ")
         : result.operation?.operation;
-      return `Proposed change (${ops}). Ready to apply — use "Apply to store" below when you're happy with it.`;
+      const targets = result.targetSummaries && result.targetSummaries.length > 0
+        ? result.targetSummaries
+        : result.targetSummary
+          ? [result.targetSummary]
+          : [];
+      const targetText = targets.length > 0 ? ` to ${targets.map(describeTarget).join("; ")}` : "";
+      return `Proposed change (${ops})${targetText}. Ready to apply — use "Apply to store" below when you're happy with it.`;
     }
     case "APPLIED":
       return "Applied directly to your store.";

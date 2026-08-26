@@ -44,6 +44,7 @@ import {
 // esModuleInterop lets this named import work against its `module.exports`.
 import { applyThemeState } from "./apply";
 import type {
+    ChangeSummary,
     EditTurnResult,
     KnownMerchantData,
     Operation,
@@ -52,6 +53,7 @@ import type {
     SectionTargetResolution,
     TargetContext,
     TargetResolutionCandidate,
+    TargetSummary,
     ThemeState,
     ValidationIssue
 } from "./types";
@@ -98,9 +100,66 @@ export function classifyRequest(userPrompt: string): "INITIAL_GENERATION" | "TAR
 // second question format.
 // ---------------------------------------------------------------------------
 
-export function buildAmbiguityQuestion(candidates: TargetResolutionCandidate[], kind: string): string {
-    const options = candidates.map((c, i) => `${i + 1}. ${"sectionId" in c ? c.sectionId : c.blockId} (${c.type})`).join("\n");
-    return `Which ${kind} did you mean?\n${options}`;
+// Merchant-facing labels never surface a raw id/type token (e.g.
+// "product_price_block (product_price)") — those are internal identifiers
+// with no meaning to someone who didn't write the schema. Prefer the
+// schema's own human-readable `label`; if a block/section type has none,
+// fall back to turning its id into words rather than printing the id itself.
+function wordsOf(value: string | undefined): string[] {
+    return (value || "").toLowerCase().replace(/[_-]+/g, " ").trim().split(/\s+/).filter(Boolean);
+}
+
+function titleCase(words: string[]): string {
+    return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
+// Two candidates can share the same underlying type (e.g. three separate
+// "collapsible-row" blocks for care/shipping/materials info) — the schema
+// label alone would print the same text three times and leave the merchant
+// unable to tell them apart. When a label repeats within this candidate
+// list, append whatever the id itself adds beyond the label/type words
+// (dropping generic filler like "block"/"section") so each option stays
+// distinct without ever printing the raw id.
+function describeCandidateOptions(candidates: TargetResolutionCandidate[], schemas: SchemaCatalog): string {
+    const FILLER = new Set(["block", "section"]);
+    const described = candidates.map(candidate => {
+        const id = "sectionId" in candidate ? candidate.sectionId : candidate.blockId;
+        const type = candidate.type;
+        const schema = "sectionId" in candidate
+            ? schemas.sectionSchemas.find(s => s.id === type)
+            : schemas.blockSchemas.find(b => b.id === type);
+        const label = schema?.label || titleCase(wordsOf(type || id)) || id;
+        return { label, idWords: wordsOf(id), labelWords: new Set(wordsOf(label)) };
+    });
+
+    const labelCounts = new Map<string, number>();
+    described.forEach(d => labelCounts.set(d.label, (labelCounts.get(d.label) || 0) + 1));
+
+    return described.map((d, i) => {
+        if ((labelCounts.get(d.label) || 0) <= 1) return `${i + 1}. ${d.label}`;
+        const distinguishing = d.idWords.filter(word => !d.labelWords.has(word) && !FILLER.has(word));
+        return distinguishing.length > 0 ? `${i + 1}. ${d.label} (${titleCase(distinguishing)})` : `${i + 1}. ${d.label}`;
+    }).join("\n");
+}
+
+export function buildAmbiguityQuestion(candidates: TargetResolutionCandidate[], kind: string, schemas: SchemaCatalog): string {
+    return `I found a few ${kind}s that could match — which one did you mean?\n${describeCandidateOptions(candidates, schemas)}`;
+}
+
+// A retry after an unresolved clarification answer must never repeat the
+// exact same question text — that's what reads as "the bot isn't listening"
+// (§ chatbox trust: an identical prompt gives the merchant zero signal their
+// answer was even received). Two known reasons an answer fails to resolve:
+// they named MORE THAN ONE option ("1 and 3", "heading and text both" — a
+// turn only ever edits one target), or their answer didn't match anything
+// this system understands. Each gets its own wording, and the
+// MULTIPLE_SELECTED case narrows the option list down to just the ones they
+// named, rather than repeating the full original list.
+export function buildClarificationRetryQuestion(reason: string | undefined, candidates: TargetResolutionCandidate[], kind: string, schemas: SchemaCatalog): string {
+    if (reason === "MULTIPLE_SELECTED") {
+        return `I can only change one ${kind} at a time — which of these did you mean?\n${describeCandidateOptions(candidates, schemas)}`;
+    }
+    return `Sorry, I didn't catch that — please reply with just the number of the ${kind} you meant:\n${describeCandidateOptions(candidates, schemas)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +183,7 @@ export const GENERIC_INTENT_WORDS = new Set([
     // Structural/vague nouns naming WHAT KIND of thing is being touched
     // (already established by the resolved target itself), not WHAT the
     // new value should be.
-    "one", "some", "section", "block", "content",
+    "one", "some", "section", "sections", "block", "content",
     // WHERE, not WHAT — answers "which area of the theme", the same
     // question target RESOLUTION already asks, not "what should it say/look
     // like now" (what hasChangeDetails() actually needs to see).
@@ -135,8 +194,17 @@ function intentTokenize(text: string | undefined): string[] {
     return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-export function hasChangeDetails(intentText: string | null | undefined, target: { sectionId?: string | null; blockId?: string | null; type?: string | null; blockType?: string | null }): boolean {
-    const targetTokens = new Set(intentTokenize([target.sectionId, target.blockId, target.type, target.blockType]
+export function hasChangeDetails(intentText: string | null | undefined, target: { sectionId?: string | null; blockId?: string | null; type?: string | null; blockType?: string | null; contentPreview?: string | null }): boolean {
+    // A resolved target's own identity now includes its VISIBLE text (e.g.
+    // preview "Why Choose Us" from target-resolution matching that same
+    // phrase in the merchant's own words, see buildSectionListingAcrossTemplates
+    // above) — those words named/located the section, they didn't say what
+    // it should become, so they must be stripped just like sectionId/type
+    // already are. Without this, "change the Why Choose Us section's
+    // content" leaves "why choose us" as its own "remaining" tokens once the
+    // generic words are gone, and this wrongly reports a real instruction
+    // was given when nothing about the NEW value was ever said.
+    const targetTokens = new Set(intentTokenize([target.sectionId, target.blockId, target.type, target.blockType, target.contentPreview]
         .filter(Boolean).join(" ").replace(/[-_]/g, " ")));
     const remaining = intentTokenize(intentText || undefined).filter(token =>
         !GENERIC_INTENT_WORDS.has(token) && !targetTokens.has(token) && !EDIT_VERBS.includes(token));
@@ -208,20 +276,79 @@ export interface SectionListingEntry {
     templateName: string;
     sectionId: string;
     type: string;
+    /** 1-based position within the page's rendered section order. */
+    position: number;
+    totalSections: number;
+    previousSectionId: string | null;
+    nextSectionId: string | null;
+    /** Visible on-page text (headings/body copy), for matching a merchant's
+     *  description of what a section SAYS rather than what it's called. */
+    preview: string;
+}
+
+// Non-content string setting values (hex colors, raw numbers/units, layout
+// enums like "center"/"large") that would otherwise pollute the preview —
+// settings.js's SectionSchema doesn't tag which settings are free text vs.
+// an enum, so this is a stoplist rather than a schema-driven filter; it only
+// ever drops known non-content tokens, never real copy.
+const NON_CONTENT_VALUE_PATTERN = /^#[0-9a-f]{3,8}$|^\d+(\.\d+)?(px|%|em|rem)?$/i;
+const NON_CONTENT_VALUE_WORDS = new Set([
+    "left", "right", "center", "top", "bottom", "middle",
+    "small", "medium", "large", "none", "auto",
+    "vertical", "horizontal", "true", "false"
+]);
+
+// A merchant describes a section by what it's called (id/type), where it
+// sits on the page (position, "after the slider"), or what it visibly says
+// ("Why Choose Us") — often the last of those three, since that's what they
+// actually see. Only id/type used to reach the AI candidate listing before
+// this; a free-text chatbox needs all three, since there's no fixed
+// vocabulary a merchant's own words are guaranteed to hit.
+export function extractSectionTextPreview(settings: Record<string, unknown> | undefined | null, maxLength = 180): string {
+    if (!settings) return "";
+    const strings = Object.values(settings)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map(value => value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+        .filter(value => value && !NON_CONTENT_VALUE_PATTERN.test(value) && !NON_CONTENT_VALUE_WORDS.has(value.toLowerCase()));
+    const joined = strings.join(" | ");
+    return joined.length > maxLength ? `${joined.slice(0, maxLength)}…` : joined;
 }
 
 export function buildSectionListingAcrossTemplates(themeState: ThemeState): SectionListingEntry[] {
     const listing: SectionListingEntry[] = [];
     for (const [templateName, template] of Object.entries(themeState.templates || {})) {
-        for (const [sectionId, section] of Object.entries((template.raw && template.raw.sections) || {})) {
-            listing.push({ templateName, sectionId, type: section.type });
-        }
+        const sections = (template.raw && template.raw.sections) || {};
+        // Rendered page order (template.raw.order), not JSON key-insertion
+        // order — those two routinely differ, and position/"after X" only
+        // means anything relative to the order the merchant actually sees.
+        const order = (template.raw && template.raw.order && template.raw.order.length > 0)
+            ? template.raw.order.filter(id => Object.prototype.hasOwnProperty.call(sections, id))
+            : Object.keys(sections);
+        order.forEach((sectionId, index) => {
+            const section = sections[sectionId];
+            listing.push({
+                templateName,
+                sectionId,
+                type: section.type,
+                position: index + 1,
+                totalSections: order.length,
+                previousSectionId: index > 0 ? order[index - 1] : null,
+                nextSectionId: index < order.length - 1 ? order[index + 1] : null,
+                preview: extractSectionTextPreview(section.settings)
+            });
+        });
     }
     return listing;
 }
 
 export function buildTargetResolutionSystemPrompt(sectionListing: SectionListingEntry[]): string {
-    return `You are helping locate WHICH EXISTING section of a Shopify theme a merchant's edit request refers to. The merchant's own words may be vague, or may name another area only as a LANDMARK for finding something else ("the section before the footer", "above the header") rather than naming that area as the actual target — use your judgment about what they actually mean, not just keyword overlap.
+    return `You are helping locate WHICH EXISTING section of a Shopify theme a merchant's edit request refers to. This is a free-text chatbox — the merchant can describe the section any way they like: by its visible text/heading ("the Why Choose Us section"), by its position on the page ("the second section", "the one right after the slider"), by what it's called (id/type), or vaguely. Their own words may also name another area only as a LANDMARK for finding something else ("the section before the footer") rather than as the actual target — use your judgment about what they actually mean, not just keyword overlap.
+
+Each entry below is one existing section:
+- templateName/sectionId/type: its identity.
+- position/totalSections: its 1-based position in the page's actual rendered order (e.g. position 2 of 6 = "the second section").
+- previousSectionId/nextSectionId: its neighbors, for landmark phrasing ("after X", "before Y", "right after the slider").
+- preview: the actual visible text (headings/body copy) rendered on the page for that section — this is usually the strongest signal, since merchants describe sections by what they say, not by an internal id.
 
 Respond with EXACTLY ONE JSON object, in ONE of these two shapes:
 {"confident": true, "templateName": "<templateName>", "sectionId": "<sectionId>"}
@@ -315,6 +442,45 @@ export async function runTargetResolutionStage({ userPrompt, themeState, request
     }
 
     return { resolution, validation, repaired };
+}
+
+// ---------------------------------------------------------------------------
+// A merchant-checkable identity for whatever a just-executed operation
+// actually touched — same order/preview signals as the section listing
+// above, computed post-execution (deriveResolvedTarget's ChangeSummary.target
+// already follows this rule, for the same reason: add_section's real id only
+// exists after execution). Shared by every call site that builds a final
+// PROPOSED/APPLIED EditTurnResult (this file's runTargetedEdit, and
+// conversational-edit.js's proposeAndExecuteForTarget/runMultiOperationTurn)
+// so the chat can show "this is the section that actually changed" —
+// visible text and page position included — before the merchant hits Apply.
+// ---------------------------------------------------------------------------
+
+export function buildTargetSummary(themeState: ThemeState, changeSummary: ChangeSummary | null | undefined): TargetSummary | null {
+    if (!changeSummary || changeSummary.target === "globalSettings") return null;
+    const [templateName, sectionId] = changeSummary.target.split(".");
+    if (!templateName || !sectionId) return null;
+
+    const template = themeState.templates[templateName];
+    const sections = (template && template.raw && template.raw.sections) || {};
+    const section = sections[sectionId];
+    // remove_section: the section no longer exists post-execution — still
+    // worth naming what was removed, just with no position/preview left.
+    if (!section) return { templateName, sectionId };
+
+    const order = (template.raw.order && template.raw.order.length > 0)
+        ? template.raw.order.filter(id => Object.prototype.hasOwnProperty.call(sections, id))
+        : Object.keys(sections);
+    const index = order.indexOf(sectionId);
+
+    return {
+        templateName,
+        sectionId,
+        sectionType: section.type,
+        position: index >= 0 ? index + 1 : undefined,
+        totalSections: index >= 0 ? order.length : undefined,
+        preview: extractSectionTextPreview(section.settings)
+    };
 }
 
 /**
@@ -467,7 +633,7 @@ export async function runTargetedEdit(userPrompt: string, options: RunTargetedEd
                         targetStatus: sectionTarget.status,
                         templateName,
                         candidates: sectionTarget.candidates,
-                        questions: [buildAmbiguityQuestion(sectionTarget.candidates, "section")]
+                        questions: [buildAmbiguityQuestion(sectionTarget.candidates, "section", schemas)]
                     }
                     : {
                         status: "NEEDS_CLARIFICATION",
@@ -505,7 +671,7 @@ export async function runTargetedEdit(userPrompt: string, options: RunTargetedEd
                 templateName,
                 sectionId: sectionTarget.sectionId,
                 candidates: blockTarget.candidates,
-                questions: [buildAmbiguityQuestion(blockTarget.candidates, "block")]
+                questions: [buildAmbiguityQuestion(blockTarget.candidates, "block", schemas)]
             };
             instrumentation.logEditPipeline({ requestId, status: result.status, classification, targetStatus: blockTarget.status, durationMs: Date.now() - startTime });
             return result;
@@ -525,23 +691,29 @@ export async function runTargetedEdit(userPrompt: string, options: RunTargetedEd
         // were purely "change one section content", and the AI-assisted
         // resolution above only figured out WHICH section that meant — it
         // never supplied a value either). Ask rather than let the
-        // operation-proposal call below guess a value nobody asked for. The
-        // answer merges into currentIntent and comes back through here
-        // again (conversational-edit.js's 'intent'-kind clarification), so
-        // this naturally keeps asking follow-ups until there's something
-        // concrete to act on.
+        // operation-proposal call below guess a value nobody asked for.
+        // sectionId/blockId travel with the result so conversational-edit.js
+        // can attach them to a 'value'-kind clarification (a target is
+        // already known — only the new value is missing) instead of
+        // degrading to a generic 'intent' clarification, which would
+        // re-run target resolution FROM SCRATCH on the merged answer next
+        // turn: wasteful, and it risks landing on a DIFFERENT target than
+        // the one already confirmed here.
         const looksLikeRemove = REMOVE_SIGNAL_VERBS.some(verb => new RegExp(`\\b${verb}\\b`, "i").test(userPrompt));
         if (!looksLikeRemove && !hasChangeDetails(userPrompt, {
             sectionId: targetContext.sectionId,
             type: targetContext.type,
             blockId: targetContext.block ? targetContext.block.blockId : undefined,
-            blockType: targetContext.block ? targetContext.block.type : undefined
+            blockType: targetContext.block ? targetContext.block.type : undefined,
+            contentPreview: extractSectionTextPreview(targetContext.block ? targetContext.block.currentSettings : targetContext.currentSettings)
         })) {
             const result: EditTurnResult = {
                 status: "NEEDS_CLARIFICATION",
                 classification,
                 targetStatus: sectionTarget.status,
                 templateName,
+                sectionId: targetContext.sectionId,
+                blockId: targetContext.block ? targetContext.block.blockId : undefined,
                 candidates: [],
                 questions: ["What would you like to change?"]
             };
@@ -593,6 +765,7 @@ export async function runTargetedEdit(userPrompt: string, options: RunTargetedEd
         targetStatus: sectionTarget.status,
         operation: operation!,
         changeSummary: executed.changeSummary,
+        targetSummary: buildTargetSummary(executed.themeState!, executed.changeSummary),
         themeState: executed.themeState!,
         applyResult,
         repaired

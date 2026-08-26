@@ -48,3 +48,8 @@ next-env.d.ts
 # `pnpm generate --out-dir <dir>` output: a full copy of the theme with the
 # generated template written into it. Regenerable, and 30MB+ each.
 /theme_out*
+
+# AI_DEBUG_LOG=true output (lib/ai-schema/instrumentation.ts) — full system/
+# user prompts and raw AI responses, i.e. full merchant content. Local
+# debugging only, never committed.
+/logs

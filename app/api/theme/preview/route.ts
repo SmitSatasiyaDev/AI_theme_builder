@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
-import { getStoreForOrg } from "@/lib/shopify/client";
+import { getRepresentativeProductForOrg, getStoreForOrg, type ShopifyPreviewProduct } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { getAsset, getMainThemeId } from "@/lib/ai-schema/local-theme-fs";
 import { renderTemplate } from "@/lib/preview/template-renderer";
 import { createLocalThemeReader } from "@/lib/preview/fs-template-reader";
 import type { GenerationConfig } from "@/lib/ai-schema/types";
+
+/**
+ * Best-effort: sections/blocks that read `product` (price, gallery, buy buttons, "only intended
+ * for product pages" guards) shouldn't blank the whole preview just because the store has no
+ * products yet or the Admin API hiccups — they fall back to their empty-state branch instead.
+ */
+async function resolvePreviewProduct(orgId: string): Promise<ShopifyPreviewProduct | null> {
+  try {
+    return await getRepresentativeProductForOrg(orgId);
+  } catch {
+    return null;
+  }
+}
 
 function isGenerationConfig(value: unknown): value is GenerationConfig {
     if (!value || typeof value !== "object") return false;
@@ -64,11 +77,13 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: `templates/${templateName}.json is not valid JSON` }, { status: 500 });
     }
 
+    const product = await resolvePreviewProduct(store.orgId);
     const html = await renderTemplate({
         config,
         storeName: store.shopDomain,
         templateName,
-        readTemplate: createLocalThemeReader()
+        readTemplate: createLocalThemeReader(),
+        product
     });
     return NextResponse.json({ html, empty: false });
 }
@@ -91,11 +106,13 @@ export async function POST(req: NextRequest) {
     if ("error" in resolved) return resolved.error;
     const { store } = resolved;
 
+    const product = await resolvePreviewProduct(store.orgId);
     const html = await renderTemplate({
         config,
         storeName: store.shopDomain,
         templateName,
-        readTemplate: createLocalThemeReader()
+        readTemplate: createLocalThemeReader(),
+        product
     });
     return NextResponse.json({ html, empty: false });
 }

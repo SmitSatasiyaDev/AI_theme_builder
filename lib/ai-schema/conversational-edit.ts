@@ -37,14 +37,17 @@ import {
     isCancelMessage,
     mergeClarificationAnswer
 } from "./conversation-session";
-import { saveThemeState, loadThemeState, DEFAULT_THEME_ID } from "./theme-state";
+import { DEFAULT_THEME_ID } from "./theme-state";
 import {
     EDIT_VERBS,
     classifyRequest,
     buildAmbiguityQuestion,
+    buildClarificationRetryQuestion,
     hasChangeDetails,
     runOperationProposalStage,
-    runTargetedEdit
+    runTargetedEdit,
+    buildTargetSummary,
+    extractSectionTextPreview
 } from "./edit-pipeline";
 import {
     resolveSectionTarget,
@@ -338,7 +341,9 @@ export async function proposeAndExecuteForTarget(userPrompt: string, targetConte
 
     return {
         status: autoApply ? (dryRunApply ? "DRY_RUN" : "APPLIED") : "PROPOSED",
-        operation: operation!, changeSummary: executed.changeSummary, themeState: executed.themeState!, applyResult, repaired
+        operation: operation!, changeSummary: executed.changeSummary,
+        targetSummary: buildTargetSummary(executed.themeState!, executed.changeSummary),
+        themeState: executed.themeState!, applyResult, repaired
     };
 }
 
@@ -409,7 +414,9 @@ export async function runMultiOperationTurn(clauses: string[], session: Session,
 
     return {
         status: ctx.autoApply ? (ctx.dryRunApply ? "DRY_RUN" : "APPLIED") : "PROPOSED",
-        operations, changeSummaries: executed.changeSummaries, themeState: executed.themeState!, applyResult,
+        operations, changeSummaries: executed.changeSummaries,
+        targetSummaries: executed.changeSummaries.map(cs => buildTargetSummary(executed.themeState!, cs)).filter((t): t is NonNullable<typeof t> => t !== null),
+        themeState: executed.themeState!, applyResult,
         aiCallCount, repaired: anyRepaired
     };
 }
@@ -421,7 +428,18 @@ export async function runMultiOperationTurn(clauses: string[], session: Session,
 export interface RunConversationalEditOptions {
     sessionId?: string;
     themeId?: string;
-    themeState?: ThemeState;
+    /**
+     * REQUIRED. The theme's real files on disk are the single source of
+     * truth for the current live theme (see theme-state.ts's
+     * buildThemeState) — this file no longer has any fallback that loads a
+     * cached ThemeState instead, so every caller must build a fresh one
+     * (buildThemeState()) and pass it in for EVERY turn, not just the first.
+     * Passing a ThemeState left over from an earlier turn/request risks
+     * reintroducing the exact staleness bug this design removed: an edit
+     * silently applied against content that no longer matches the real
+     * files.
+     */
+    themeState: ThemeState;
     schemas: SchemaCatalog;
     templateName?: string;
     knownMerchantData?: KnownMerchantData;
@@ -441,10 +459,8 @@ export interface ConversationalEditResult {
  * options:
  *   - sessionId: string. Omitted -> a new session is created.
  *   - themeId: default 'default' (theme-state.js's DEFAULT_THEME_ID).
- *   - themeState: a Phase 4 ThemeState for THIS turn. If omitted, the last
- *     ThemeState this session successfully saved (via saveThemeState(),
- *     theme-state.js) is loaded — §21, "the next user message must use the
- *     updated state."
+ *   - themeState: REQUIRED — a Phase 4 ThemeState freshly rebuilt from the
+ *     real theme files on disk for THIS turn (see the interface doc above).
  *   - schemas: REQUIRED, the full AI schema catalog.
  *   - templateName: default 'index', used only when no active target exists
  *     yet.
@@ -475,12 +491,9 @@ export async function runConversationalEdit(message: string, options: RunConvers
     let session = inputSessionId ? await loadSession(inputSessionId) : null;
     if (!session) session = createSession({ sessionId: inputSessionId, themeId });
 
-    let themeState = options.themeState;
+    const { themeState } = options;
     if (!themeState) {
-        themeState = (await loadThemeState(session.themeId)) ?? undefined;
-        if (!themeState) {
-            throw new Error("runConversationalEdit() requires a themeState — none was provided and none was previously saved for this session");
-        }
+        throw new Error("runConversationalEdit() requires a themeState — build one fresh from disk (theme-state.js's buildThemeState()) and pass it for every turn.");
     }
 
     const currentVersion = computeThemeStateVersion(themeState);
@@ -513,7 +526,6 @@ export async function runConversationalEdit(message: string, options: RunConvers
     const activeTemplateName = (session.resolvedTarget && session.resolvedTarget.templateName) || optionsTemplateName;
     const turnType = classifyTurn(session, message, themeState, schemas, activeTemplateName);
     const ctx: TurnContext = { themeState, schemas, templateName: activeTemplateName, knownMerchantData, autoApply, themeRoot, dryRunApply, requestId };
-    const finalThemeState = themeState;
 
     // `resultStatus` is always a SESSION_STATES value (drives classifyTurn()
     // on the NEXT turn); `extra.turnStatus`, when present, is the
@@ -542,29 +554,34 @@ export async function runConversationalEdit(message: string, options: RunConvers
         return { status: returnedStatus, sessionId: finalSession.sessionId, ...publicExtra };
     }
 
-    // A NEEDS_CLARIFICATION/FAILED turn never mutates themeState, so nothing
-    // upstream would otherwise persist it — but the NEXT turn (a
-    // CLARIFICATION_ANSWER, or a fresh retry) still calls loadThemeState()
-    // whenever this session isn't given a fresh one explicitly, and that
-    // reads back whatever the LAST *successful* apply — for this themeId,
-    // from ANY session — happened to leave on disk (or nothing at all).
-    // Without re-persisting the exact ThemeState this turn resolved
-    // against, a clarification answer can silently resolve against a
-    // stale/unrelated snapshot instead of the one the question was actually
-    // asked about (e.g. producing a correct-looking "Which section?" list
-    // that doesn't match what a following turn actually sees).
-    async function persistUnmutatedThemeState(): Promise<void> {
-        await saveThemeState({ ...finalThemeState, themeId: session!.themeId });
-    }
+    // A NEEDS_CLARIFICATION/AMBIGUOUS/FAILED turn never mutates themeState,
+    // so there is nothing new to persist for it — the real theme files on
+    // disk are unaffected either way, and the NEXT turn (a
+    // CLARIFICATION_ANSWER or a fresh retry) always gets a themeState
+    // rebuilt fresh from disk by its caller (see the interface doc on
+    // RunConversationalEditOptions.themeState), never a snapshot this
+    // function would otherwise need to have stashed itself.
 
     async function handleSingleTurnResult(result: EditTurnResult, resultSession: Session): Promise<ConversationalEditResult> {
         if (result.status === "AMBIGUOUS") {
-            await persistUnmutatedThemeState();
             const pendingClarification: PendingClarification = { kind: "intent" };
             return finish({ ...resultSession, pendingClarification, pendingQuestion: "What would you like to change?", themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: ["What would you like to change?"] });
         }
         if (result.status === "NEEDS_CLARIFICATION") {
-            await persistUnmutatedThemeState();
+            if (result.sectionId && (!result.candidates || result.candidates.length === 0)) {
+                // A target is already resolved (edit-pipeline.js's
+                // hasChangeDetails() check — the section/block is known,
+                // only the NEW VALUE is missing) — attach it as a 'value'
+                // clarification so the next answer goes straight to
+                // proposeAndExecuteForTarget() against this exact target,
+                // instead of degrading to 'intent' and re-running target
+                // resolution from scratch on the merged text (wasteful, and
+                // risks landing on a different target than the one already
+                // confirmed here).
+                const target: ResolvedTarget = { templateName: result.templateName || ctx.templateName, sectionId: result.sectionId, type: null, blockId: result.blockId };
+                const pendingClarification: PendingClarification = { kind: "value", target, templateName: result.templateName || ctx.templateName, questions: result.questions! };
+                return finish({ ...resultSession, resolvedTarget: target, pendingClarification, pendingQuestion: result.questions![0], themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: result.questions });
+            }
             if (!result.candidates || result.candidates.length === 0) {
                 // No fixed candidate list to match the answer against (e.g.
                 // edit-pipeline.js's AI-assisted target resolution asking its
@@ -581,36 +598,35 @@ export async function runConversationalEdit(message: string, options: RunConvers
             return finish({ ...resultSession, pendingClarification, pendingQuestion: result.questions![0], themeStateVersion: currentVersion }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: result.questions, candidates: result.candidates });
         }
         if (result.status === "FAILED") {
-            await persistUnmutatedThemeState();
             return finish({ ...resultSession, themeStateVersion: currentVersion }, SESSION_STATES.FAILED, { errors: result.errors, operation: result.operation, repaired: result.repaired });
         }
-        // PROPOSED / APPLIED / DRY_RUN — saved keyed by THIS SESSION's
-        // themeId, never whatever `.themeId` the input ThemeState object
-        // happened to carry (saveThemeState()/loadThemeState() are keyed by
-        // that field; a mismatch would silently save to one file and load
-        // from another on the next turn).
-        await saveThemeState({ ...result.themeState!, themeId: resultSession.themeId });
+        // PROPOSED / APPLIED / DRY_RUN. The mutated `result.themeState` is
+        // never persisted anywhere — /api/edit/apply rebuilds a fresh
+        // ThemeState from disk at apply time and replays `lastOperations`
+        // (operations.js's applyOperationToThemeState() is deterministic:
+        // same operation + same base state always produces the same
+        // result), so there is nothing here for a later request to reuse.
+        const operationWithId = { ...result.operation!, id: generateOperationId(result.operation!) };
         const updatedSession: Session = {
             ...resultSession,
             currentIntent: null, pendingClarification: null, pendingQuestion: null,
             resolvedTarget: deriveResolvedTarget(result.changeSummary, result.themeState!),
-            lastOperation: { ...result.operation!, id: generateOperationId(result.operation!) },
+            lastOperation: operationWithId,
+            lastOperations: [operationWithId],
             lastChangeSummary: result.changeSummary ?? null,
             themeStateVersion: computeThemeStateVersion(result.themeState!)
         };
         return finish(updatedSession, SESSION_STATES.COMPLETED, {
             turnStatus: result.status, // PROPOSED | APPLIED | DRY_RUN
-            operation: result.operation, changeSummary: result.changeSummary,
+            operation: result.operation, changeSummary: result.changeSummary, targetSummary: result.targetSummary,
             themeState: result.themeState, applyResult: result.applyResult, repaired: result.repaired
         });
     }
 
     async function handleMultiTurnResult(result: EditTurnResult, resultSession: Session): Promise<ConversationalEditResult> {
         if (result.status === "FAILED") {
-            await persistUnmutatedThemeState();
             return finish({ ...resultSession, themeStateVersion: currentVersion }, SESSION_STATES.FAILED, { errors: result.errors, aiCallCount: result.aiCallCount, repaired: result.repaired });
         }
-        await saveThemeState({ ...result.themeState!, themeId: resultSession.themeId });
         const lastSummary = result.changeSummaries![result.changeSummaries!.length - 1];
         const lastOp = result.operations![result.operations!.length - 1];
         const updatedSession: Session = {
@@ -618,12 +634,13 @@ export async function runConversationalEdit(message: string, options: RunConvers
             currentIntent: null, pendingClarification: null, pendingQuestion: null,
             resolvedTarget: deriveResolvedTarget(lastSummary, result.themeState!),
             lastOperation: { ...lastOp, id: generateOperationId(lastOp) },
+            lastOperations: result.operations!.map(op => ({ ...op, id: generateOperationId(op) })),
             lastChangeSummary: lastSummary,
             themeStateVersion: computeThemeStateVersion(result.themeState!)
         };
         return finish(updatedSession, SESSION_STATES.COMPLETED, {
             turnStatus: result.status, // PROPOSED | APPLIED | DRY_RUN
-            operations: result.operations, changeSummaries: result.changeSummaries,
+            operations: result.operations, changeSummaries: result.changeSummaries, targetSummaries: result.targetSummaries,
             themeState: result.themeState, applyResult: result.applyResult, aiCallCount: result.aiCallCount, repaired: result.repaired
         });
     }
@@ -670,8 +687,16 @@ export async function runConversationalEdit(message: string, options: RunConvers
         // target the merchant meant.
         const merge = mergeClarificationAnswer(pending, message);
         if (!merge.resolved) {
-            const question = (pending.questions && pending.questions[0]) || `Which ${pending.kind} did you mean?`;
-            return finish({ ...session, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question], candidates: pending.candidates });
+            // Narrow to the options the merchant actually named on a
+            // MULTIPLE_SELECTED retry (e.g. "1 and 3") so the follow-up asks
+            // about just those two, not the full original list — and either
+            // way, never repeat the exact same question text (see
+            // buildClarificationRetryQuestion's own note on why that reads
+            // as the bot ignoring the answer).
+            const retryCandidates = merge.reason === "MULTIPLE_SELECTED" && merge.candidates ? merge.candidates : pending.candidates;
+            const question = buildClarificationRetryQuestion(merge.reason, retryCandidates, pending.kind, schemas);
+            const narrowedClarification: PendingClarification = { ...pending, candidates: retryCandidates, questions: [question] };
+            return finish({ ...session, pendingClarification: narrowedClarification, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question], candidates: retryCandidates });
         }
 
         const match = merge.match!;
@@ -689,7 +714,10 @@ export async function runConversationalEdit(message: string, options: RunConvers
         target.type = targetContext.type;
         if (targetContext.block) target.blockType = targetContext.block.type;
 
-        if (!hasChangeDetails(session.currentIntent, target)) {
+        if (!hasChangeDetails(session.currentIntent, {
+            ...target,
+            contentPreview: extractSectionTextPreview(targetContext.block ? targetContext.block.currentSettings : targetContext.currentSettings)
+        })) {
             const question = "What would you like to change?";
             const valueClarification: PendingClarification = { kind: "value", target, templateName: pending.templateName, questions: [question] };
             return finish({ ...session, resolvedTarget: target, pendingClarification: valueClarification, pendingQuestion: question }, SESSION_STATES.NEEDS_CLARIFICATION, { questions: [question] });
@@ -702,7 +730,7 @@ export async function runConversationalEdit(message: string, options: RunConvers
     if (turnType === "FOLLOW_UP") {
         const resolution = resolveFollowUpReference(session, message, themeState);
         if (resolution.status === "AMBIGUOUS") {
-            const questions = [buildAmbiguityQuestion(resolution.candidates, resolution.kind)];
+            const questions = [buildAmbiguityQuestion(resolution.candidates, resolution.kind, schemas)];
             const pendingClarification: PendingClarification = { kind: resolution.kind, candidates: resolution.candidates, templateName: resolution.templateName || "", sectionId: resolution.sectionId, questions };
             return finish({ ...session, currentIntent: message, pendingClarification, pendingQuestion: questions[0] }, SESSION_STATES.NEEDS_CLARIFICATION, { questions, candidates: resolution.candidates });
         }

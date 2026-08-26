@@ -31,10 +31,11 @@ type GenerateThemeJobData = { jobId: string };
 
 const { getMainThemeId } = require("../lib/ai-schema/local-theme-fs");
 const { loadSchemas } = require("../lib/ai-schema/ai-client");
-const { buildThemeState, saveThemeStateForStore } = require("../lib/ai-schema/theme-state");
+const { buildThemeState } = require("../lib/ai-schema/theme-state");
 const { runStagedGeneration } = require("../lib/ai-schema/generation");
 const { validateCandidate } = require("../lib/ai-schema/validation");
 const { mergeThemeState } = require("../lib/ai-schema/merge");
+const instrumentation = require("../lib/ai-schema/instrumentation");
 
 async function processGenerateTheme(jobId: string) {
   const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
@@ -58,6 +59,9 @@ async function processGenerateTheme(jobId: string) {
 
     const fullSchemas = await loadSchemas();
 
+    // Freshly rebuilt from the real theme files on disk — the only live
+    // ThemeState source now (see theme-state.ts's buildThemeState); this is
+    // not cached anywhere, so every generation reads current reality.
     const themeState = await buildThemeState({
       shopDomain: store.shopDomain,
       accessToken,
@@ -65,7 +69,6 @@ async function processGenerateTheme(jobId: string) {
       schemas: fullSchemas,
       context: { requestId: jobId }
     });
-    await saveThemeStateForStore(store.id, themeId, themeState);
 
     // Written by app/api/generate/chat/route.ts as JSON.stringify(brief)
     // once the intake conversation has gathered enough to generate.
@@ -89,6 +92,12 @@ async function processGenerateTheme(jobId: string) {
       )
     );
 
+    // Final sanity-check pass against the FULL (untrimmed) catalog + live themeState —
+    // deliberately a second, separate validateCandidate() call from the one already run
+    // inside runConfigurationStage() (which validates against the trimmed candidate set
+    // and without themeState context) — both are pure/local/synchronous, no DB or
+    // network I/O, so timing them costs only what the validation logic itself costs.
+    const postValidationStart = Date.now();
     const indexValidation = validateCandidate(generatedIndex.config, fullSchemas, {
       templateName: "index",
       themeState
@@ -97,6 +106,7 @@ async function processGenerateTheme(jobId: string) {
       templateName: "product",
       themeState
     });
+    const postValidationMs = Date.now() - postValidationStart;
 
     // Sequential, not parallel: mergeThemeState() is pure/synchronous and each call only
     // touches its own template entry (see merge.ts's file header) — feeding the first result's
@@ -109,6 +119,7 @@ async function processGenerateTheme(jobId: string) {
     // catalog doesn't recognize, so this is acknowledged by design here rather than failing
     // closed on every first run. The product template goes through mergeForcedExclusiveTemplate
     // instead (splices main-product in by type match, see merge.ts) — the flag is a no-op there.
+    const mergeStart = Date.now();
     const mergedIndex = mergeThemeState(themeState, {
       templateName: "index",
       candidate: generatedIndex.config,
@@ -134,6 +145,7 @@ async function processGenerateTheme(jobId: string) {
         `Merge failed for product: ${mergedProduct.conflicts.map((c: { code: string; message: string }) => `[${c.code}] ${c.message}`).join("; ")}`
       );
     }
+    const mergeMs = Date.now() - mergeStart;
 
     const combinedSummary = {
       changedFiles: [...mergedIndex.summary!.changedFiles, ...mergedProduct.summary!.changedFiles],
@@ -148,6 +160,35 @@ async function processGenerateTheme(jobId: string) {
       ]
     };
 
+    const totalMs = Date.now() - wallClockStart;
+    const aiCallCount = generatedIndex.aiCallCount + generatedProduct.aiCallCount;
+    const retryCount = generatedIndex.retryCount + generatedProduct.retryCount;
+    const deterministicFixCount = generatedIndex.deterministicFixCount + generatedProduct.deterministicFixCount;
+    const promptChars = generatedIndex.promptChars + generatedProduct.promptChars;
+    const outputChars = generatedIndex.outputChars + generatedProduct.outputChars;
+    const validationMs = generatedIndex.timings.validationMs + generatedProduct.timings.validationMs + postValidationMs;
+
+    // §8 — one consolidated, easy-to-grep line covering the whole job: every number
+    // here is also already logged piecemeal by generation.ts/merge.ts/instrumentation.ts
+    // as the job ran, this is just the single before/after summary view.
+    instrumentation.logGenerationSummary({
+      requestId: jobId,
+      jobId,
+      retrievalMs: generatedIndex.timings.retrievalMs + generatedProduct.timings.retrievalMs,
+      indexPlanningMs: generatedIndex.timings.planningMs,
+      productPlanningMs: generatedProduct.timings.planningMs,
+      indexConfigurationMs: generatedIndex.timings.configurationMs,
+      productConfigurationMs: generatedProduct.timings.configurationMs,
+      validationMs,
+      mergeMs,
+      totalMs,
+      aiCallCount,
+      retryCount,
+      deterministicFixCount,
+      promptChars,
+      outputChars
+    });
+
     await db.update(generationJobs).set({
       status: "completed",
       resultJson: {
@@ -160,7 +201,10 @@ async function processGenerateTheme(jobId: string) {
             planRepaired: generatedIndex.planRepaired,
             configRepaired: generatedIndex.configRepaired,
             aiCallCount: generatedIndex.aiCallCount,
-            durationMs: generatedIndex.durationMs
+            retryCount: generatedIndex.retryCount,
+            deterministicFixCount: generatedIndex.deterministicFixCount,
+            durationMs: generatedIndex.durationMs,
+            timings: generatedIndex.timings
           },
           product: {
             plan: generatedProduct.plan,
@@ -170,13 +214,30 @@ async function processGenerateTheme(jobId: string) {
             planRepaired: generatedProduct.planRepaired,
             configRepaired: generatedProduct.configRepaired,
             aiCallCount: generatedProduct.aiCallCount,
-            durationMs: generatedProduct.durationMs
+            retryCount: generatedProduct.retryCount,
+            deterministicFixCount: generatedProduct.deterministicFixCount,
+            durationMs: generatedProduct.durationMs,
+            timings: generatedProduct.timings
           }
         },
         mergeSummary: combinedSummary,
         mergedThemeState: mergedProduct.mergedThemeState,
-        aiCallCount: generatedIndex.aiCallCount + generatedProduct.aiCallCount,
-        durationMs: Date.now() - wallClockStart
+        aiCallCount,
+        retryCount,
+        deterministicFixCount,
+        promptChars,
+        outputChars,
+        timings: {
+          retrievalMs: generatedIndex.timings.retrievalMs + generatedProduct.timings.retrievalMs,
+          indexPlanningMs: generatedIndex.timings.planningMs,
+          productPlanningMs: generatedProduct.timings.planningMs,
+          indexConfigurationMs: generatedIndex.timings.configurationMs,
+          productConfigurationMs: generatedProduct.timings.configurationMs,
+          validationMs,
+          mergeMs,
+          totalMs
+        },
+        durationMs: totalMs
       },
       completedAt: new Date()
     }).where(eq(generationJobs.id, jobId));

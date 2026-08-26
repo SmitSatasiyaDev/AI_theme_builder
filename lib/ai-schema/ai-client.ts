@@ -36,6 +36,15 @@ const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "moonshotai/kimi-k2.5";
 export const OPENROUTER_FAST_MODEL = process.env.OPENROUTER_FAST_MODEL || OPENROUTER_MODEL;
 const DEBUG = process.env.DEBUG === "true";
 
+// Every call site's real output stays well under this (staged_configuration — the largest,
+// a full ~10-section homepage with blocks — measures ~2.5K tokens in practice; everything
+// else is smaller). Set explicitly because leaving `max_tokens` unset lets OpenRouter fall
+// back to the target MODEL's own max-output ceiling (e.g. 64,000 for some models) — some
+// providers pre-authorize spend against that requested ceiling rather than actual usage, which
+// can 402 a low/limited API key even though real usage would be a fraction of it. Generous
+// headroom over real usage, nowhere near that kind of ceiling.
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
 // process.cwd()-relative, not __dirname-relative: __dirname resolves correctly for the
 // standalone worker (scripts/worker.ts, run via plain tsx), but inside a Next.js server
 // process (e.g. app/api/edit/route.ts calling loadSchemas()) it resolves to whatever
@@ -305,13 +314,25 @@ export function sanitizeJsonControlCharacters(text: string): string {
 }
 
 /**
+ * Strips a wrapping ```json ... ``` or ``` ... ``` markdown code fence from
+ * AI output. Despite response_format: "json_object", some models (notably
+ * fast models routed through OpenRouter) still wrap their JSON in a fence.
+ * Returns the input unchanged if it isn't fenced.
+ */
+export function stripMarkdownCodeFence(text: string): string {
+    const trimmed = text.trim();
+    const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+    return fenceMatch ? fenceMatch[1] : text;
+}
+
+/**
  * Make an AI request to OpenRouter with retry logic
  */
 export async function makeAIRequest(
     userPrompt: string,
     systemPrompt: string,
     maxRetries = 3,
-    context: { requestId?: string; callType?: string; model?: string } = {}
+    context: { requestId?: string; callType?: string; model?: string; maxTokens?: number } = {}
 ): Promise<string | undefined> {
     if (!OPENROUTER_API_KEY) {
         throw new Error("OPENROUTER_API_KEY not set in environment. Please set it in .env file");
@@ -321,7 +342,12 @@ export async function makeAIRequest(
         throw new Error("Invalid user prompt: must be a non-empty string");
     }
 
-    const { requestId = instrumentation.nextRequestId("gen"), callType = "main_generation", model = OPENROUTER_MODEL } = context;
+    const {
+        requestId = instrumentation.nextRequestId("gen"),
+        callType = "main_generation",
+        model = OPENROUTER_MODEL,
+        maxTokens = DEFAULT_MAX_OUTPUT_TOKENS
+    } = context;
     const startTime = Date.now();
     const promptChars = (systemPrompt ? systemPrompt.length : 0) + userPrompt.length;
 
@@ -348,6 +374,7 @@ export async function makeAIRequest(
                         }
                     ],
                     temperature: 0.8,
+                    max_tokens: maxTokens,
                     response_format: { type: "json_object" }
                 })
             });
@@ -371,32 +398,54 @@ export async function makeAIRequest(
             }
 
             const content = data.choices[0].message.content;
-            const sanitizedContent = content ? sanitizeJsonControlCharacters(content) : content;
+            const unfencedContent = content ? stripMarkdownCodeFence(content) : content;
+            const sanitizedContent = unfencedContent ? sanitizeJsonControlCharacters(unfencedContent) : unfencedContent;
+            // OpenAI-compatible providers (OpenRouter included) return real
+            // token counts on the response — prefer these over the chars/4
+            // estimate logAICall() falls back to when a provider omits it.
+            const usage: instrumentation.AITokenUsage | null = data.usage ? {
+                promptTokens: data.usage.prompt_tokens ?? null,
+                completionTokens: data.usage.completion_tokens ?? null,
+                totalTokens: data.usage.total_tokens ?? null
+            } : null;
+            const durationMs = Date.now() - startTime;
             instrumentation.logAICall({
                 requestId,
                 callType,
                 model,
                 promptChars,
                 outputChars: sanitizedContent ? sanitizedContent.length : 0,
-                durationMs: Date.now() - startTime,
+                usage,
+                durationMs,
                 retryCount: attempt - 1,
                 attempts: attempt,
                 success: true
             });
+            instrumentation.logAICallDetail({
+                requestId, callType, model, systemPrompt, userPrompt,
+                responseContent: sanitizedContent ?? null, usage,
+                durationMs, retryCount: attempt - 1, attempts: attempt, success: true
+            });
             return sanitizedContent;
         } catch (error) {
             if (attempt === maxRetries) {
+                const durationMs = Date.now() - startTime;
                 instrumentation.logAICall({
                     requestId,
                     callType,
                     model,
                     promptChars,
                     outputChars: 0,
-                    durationMs: Date.now() - startTime,
+                    durationMs,
                     retryCount: attempt - 1,
                     attempts: attempt,
                     success: false,
                     error: (error as Error).message
+                });
+                instrumentation.logAICallDetail({
+                    requestId, callType, model, systemPrompt, userPrompt,
+                    responseContent: null, usage: null,
+                    durationMs, retryCount: attempt - 1, attempts: attempt, success: false, error: (error as Error).message
                 });
                 throw error;
             }
@@ -722,6 +771,7 @@ IMPORTANT:
                     }
                 ],
                 temperature: 0.7,
+                max_tokens: 1024,
                 response_format: { type: "json_object" }
             })
         });
@@ -754,7 +804,7 @@ IMPORTANT:
             console.log("🔍 Raw AI color response:", content.substring(0, 200));
         }
 
-        const colorPalette = JSON.parse(sanitizeJsonControlCharacters(content));
+        const colorPalette = JSON.parse(sanitizeJsonControlCharacters(stripMarkdownCodeFence(content)));
 
         // Validate that we got the required color fields
         if (!colorPalette.colors_accent_1 || !colorPalette.colors_accent_2) {

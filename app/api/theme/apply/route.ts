@@ -6,11 +6,12 @@ import { generationJobs } from "@/db/schema/generation";
 import { organizationMembers } from "@/db/schema/organizations";
 import { shopifyStores } from "@/db/schema/shopify";
 import { decryptSecret } from "@/lib/crypto";
+import type { ThemeState } from "@/lib/ai-schema/types";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
 
 type MergeSummary = { changedTemplates: string[]; changedSettings: string[] };
-type GenerationResult = { mergedThemeState: unknown; mergeSummary: MergeSummary };
+type GenerationResult = { mergedThemeState: ThemeState; mergeSummary: MergeSummary };
 
 export async function POST(req: NextRequest) {
   const session = await auth();

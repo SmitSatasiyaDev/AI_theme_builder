@@ -81,7 +81,8 @@ export const OPERATION_ERROR_CODES = Object.freeze({
     OPERATION_SETTING_INVALID: "OPERATION_SETTING_INVALID",
     OPERATION_DATA_REFERENCE_INVALID: "OPERATION_DATA_REFERENCE_INVALID",
     OPERATION_CONFLICT: "OPERATION_CONFLICT",
-    OPERATION_ORDER_INVALID: "OPERATION_ORDER_INVALID"
+    OPERATION_ORDER_INVALID: "OPERATION_ORDER_INVALID",
+    OPERATION_NO_CHANGE: "OPERATION_NO_CHANGE"
 });
 
 function issue(code: string, path: string, message: string): ValidationIssue {
@@ -265,6 +266,26 @@ function validateChangedSettings(
     return errors;
 }
 
+// An operation whose every proposed setting value is byte-identical to the
+// value already there validates cleanly (every check above only asks "is
+// this a real setting with a legal value," never "does this differ from
+// what's already there") and executes cleanly (executeOperation()'s
+// `changed` list is just Object.keys(changes.settings) — it records which
+// KEYS were touched, not whether the VALUE actually moved) — so it reports
+// success while visibly changing nothing. That's exactly the shape of a
+// proposal the AI makes when it was asked to change a target but was never
+// told what the new value should be (e.g. a merchant's "reply" to a
+// clarification question turned out to only re-name WHICH block to touch,
+// never WHAT to put there): rather than guess, it echoes the current value
+// back as its "change." Catching that here — before it reaches execution —
+// turns a silent no-op "success" into an actionable validation error the
+// merchant/AI can react to.
+function changesAreNoOp(currentSettings: Record<string, unknown> | undefined, changes: Record<string, unknown> | undefined): boolean {
+    if (!changes || Object.keys(changes).length === 0) return false;
+    const current = currentSettings || {};
+    return Object.entries(changes).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
+}
+
 function allowedBlocksList(sectionSchema: SectionSchema | undefined): string[] {
     if (!sectionSchema || !sectionSchema.allowed_blocks) return [];
     return Array.isArray(sectionSchema.allowed_blocks) ? sectionSchema.allowed_blocks : Object.keys(sectionSchema.allowed_blocks);
@@ -312,6 +333,9 @@ export function validateOperation(operation: Operation, options: Partial<Validat
         if (op === "update_section") {
             const sectionSchema = sectionById.get(existingSections[target.sectionId].type);
             errors.push(...validateChangedSettings(sectionSchema ? sectionSchema.settings : {}, changes.settings, "operation.changes.settings", knownMerchantData));
+            if (errors.length === 0 && changesAreNoOp(existingSections[target.sectionId].settings, changes.settings)) {
+                errors.push(issue(OPERATION_ERROR_CODES.OPERATION_NO_CHANGE, "operation.changes.settings", "Every proposed setting already has this exact value — nothing would actually change. State what the NEW value should be."));
+            }
         }
         return { valid: errors.length === 0, errors };
     }
@@ -354,6 +378,9 @@ export function validateOperation(operation: Operation, options: Partial<Validat
         if (op === "update_block") {
             const blockSchema = blockById.get(existingBlocks[target.blockId].type);
             errors.push(...validateChangedSettings(blockSchema ? blockSchema.settings : {}, changes.settings, "operation.changes.settings", knownMerchantData));
+            if (errors.length === 0 && changesAreNoOp(existingBlocks[target.blockId].settings, changes.settings)) {
+                errors.push(issue(OPERATION_ERROR_CODES.OPERATION_NO_CHANGE, "operation.changes.settings", "Every proposed setting already has this exact value — nothing would actually change. State what the NEW value should be."));
+            }
         }
         return { valid: errors.length === 0, errors };
     }
