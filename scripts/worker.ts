@@ -190,9 +190,7 @@ async function processGenerateTheme(jobId: string) {
     // §8 — one consolidated, easy-to-grep line covering the whole job: every number
     // here is also already logged piecemeal by generation.ts/merge.ts/instrumentation.ts
     // as the job ran, this is just the single before/after summary view.
-    instrumentation.logGenerationSummary({
-      requestId: jobId,
-      jobId,
+    const timings = {
       retrievalMs: generatedIndex.timings.retrievalMs + generatedProduct.timings.retrievalMs,
       indexPlanningMs: generatedIndex.timings.planningMs,
       productPlanningMs: generatedProduct.timings.planningMs,
@@ -200,7 +198,13 @@ async function processGenerateTheme(jobId: string) {
       productConfigurationMs: generatedProduct.timings.configurationMs,
       validationMs,
       mergeMs,
-      totalMs,
+      totalMs
+    };
+
+    instrumentation.logGenerationSummary({
+      requestId: jobId,
+      jobId,
+      ...timings,
       aiCallCount,
       retryCount,
       deterministicFixCount,
@@ -220,16 +224,7 @@ async function processGenerateTheme(jobId: string) {
       deterministicFixCount,
       promptChars,
       outputChars,
-      timings: {
-        retrievalMs: generatedIndex.timings.retrievalMs + generatedProduct.timings.retrievalMs,
-        indexPlanningMs: generatedIndex.timings.planningMs,
-        productPlanningMs: generatedProduct.timings.planningMs,
-        indexConfigurationMs: generatedIndex.timings.configurationMs,
-        productConfigurationMs: generatedProduct.timings.configurationMs,
-        validationMs,
-        mergeMs,
-        totalMs
-      },
+      timings,
       durationMs: totalMs
     });
   } catch (error) {
