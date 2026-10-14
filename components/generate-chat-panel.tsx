@@ -7,6 +7,7 @@ import { fetcher } from "@/lib/fetcher";
 import { errorMessage } from "@/lib/errors";
 import type { GenerationConfig, PreviewConfigByTemplate } from "./theme-preview-panel";
 import { useThinkingStage } from "./use-thinking-stage";
+import { ChatMessageList, ThinkingBubble, type ChatMessage } from "./chat-messages";
 
 type TemplateResult = {
   plan: { order: string[]; sections: Record<string, { type: string; blockTypes?: string[] }> };
@@ -39,11 +40,6 @@ type IntakeTurnResult = {
   question?: string;
   jobId?: string;
   error?: string;
-};
-
-type ChatMessage = {
-  role: "user" | "assistant";
-  text: string;
 };
 
 // Neither turn has real intermediate progress events — the intake POST is one request/response,
@@ -203,32 +199,9 @@ export function GenerateChatPanel({
             owners.&rdquo; I&rsquo;ll ask a couple of questions, then build your homepage.
           </p>
         )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`max-w-[85%] rounded-md px-3 py-2 text-sm ${
-              m.role === "user" ? "self-end bg-black text-white" : "self-start bg-gray-100 text-gray-800"
-            }`}
-          >
-            {m.text}
-          </div>
-        ))}
-        {sending && (
-          <div className="max-w-[85%] self-start rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-500">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400" />
-              {INTAKE_THINKING_STAGES[intakeStage]}
-            </span>
-          </div>
-        )}
-        {jobRunning && (
-          <div className="max-w-[85%] self-start rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-500">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400" />
-              {JOB_THINKING_STAGES[jobStage]}
-            </span>
-          </div>
-        )}
+        <ChatMessageList messages={messages} />
+        {sending && <ThinkingBubble label={INTAKE_THINKING_STAGES[intakeStage]} />}
+        {jobRunning && <ThinkingBubble label={JOB_THINKING_STAGES[jobStage]} />}
       </div>
 
       {!jobId && (

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Field } from "@base-ui/react/field";
 import { errorMessage } from "@/lib/errors";
 import { useThinkingStage } from "./use-thinking-stage";
+import { ChatMessageList, ThinkingBubble, type ChatMessage } from "./chat-messages";
 
 type EditTurnResult = {
   sessionId: string;
@@ -28,11 +29,6 @@ type TargetSummary = {
   position?: number;
   totalSections?: number;
   preview?: string;
-};
-
-type ChatMessage = {
-  role: "user" | "assistant";
-  text: string;
 };
 
 const APPLIABLE_STATUSES = new Set(["PROPOSED", "COMPLETED"]);
@@ -219,24 +215,8 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
             dog.&rdquo;
           </p>
         )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`max-w-[85%] rounded-md px-3 py-2 text-sm ${
-              m.role === "user" ? "self-end bg-black text-white" : "self-start bg-gray-100 text-gray-800"
-            }`}
-          >
-            {m.text}
-          </div>
-        ))}
-        {sending && (
-          <div className="max-w-[85%] self-start rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-500">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400" />
-              {THINKING_STAGES[thinkingStage]}
-            </span>
-          </div>
-        )}
+        <ChatMessageList messages={messages} />
+        {sending && <ThinkingBubble label={THINKING_STAGES[thinkingStage]} />}
       </div>
 
       {canApply && (
