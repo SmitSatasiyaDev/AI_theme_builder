@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
-import { createOAuthState } from "@/lib/shopify/state";
+import { OAUTH_NONCE_COOKIE, createOAuthState } from "@/lib/shopify/state";
 import { isValidShopDomain } from "@/lib/shopify/shop-domain";
 
 export async function GET(req: NextRequest) {
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   authorizeUrl.searchParams.set("state", state);
 
   const res = NextResponse.redirect(authorizeUrl);
-  res.cookies.set("shopify_oauth_nonce", nonce, {
+  res.cookies.set(OAUTH_NONCE_COOKIE, nonce, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",

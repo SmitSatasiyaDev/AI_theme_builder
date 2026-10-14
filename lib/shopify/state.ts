@@ -1,6 +1,9 @@
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { requireEnv } from "../env";
 
+/** Cookie holding the per-install nonce that the signed `state` param is bound to. */
+export const OAUTH_NONCE_COOKIE = "shopify_oauth_nonce";
+
 // Signs/verifies the OAuth `state` param so the callback can trust which org
 // initiated the install without re-deriving it from user-controlled input.
 function getSecret(): string {

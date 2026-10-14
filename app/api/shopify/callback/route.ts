@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { shopifyStores } from "@/db/schema/shopify";
 import { organizations } from "@/db/schema/organizations";
 import { encryptSecret } from "@/lib/crypto";
-import { verifyOAuthState } from "@/lib/shopify/state";
+import { OAUTH_NONCE_COOKIE, verifyOAuthState } from "@/lib/shopify/state";
 import { verifyShopifyHmac } from "@/lib/shopify/verify";
 import { isValidShopDomain } from "@/lib/shopify/shop-domain";
 
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "HMAC verification failed" }, { status: 401 });
   }
 
-  const nonce = req.cookies.get("shopify_oauth_nonce")?.value;
+  const nonce = req.cookies.get(OAUTH_NONCE_COOKIE)?.value;
   if (!nonce) {
     return NextResponse.json({ error: "Missing OAuth session" }, { status: 400 });
   }
@@ -77,6 +77,6 @@ export async function GET(req: NextRequest) {
     .limit(1);
 
   const res = NextResponse.redirect(new URL(`/dashboard/${org?.slug ?? ""}/stores`, req.url));
-  res.cookies.delete("shopify_oauth_nonce");
+  res.cookies.delete(OAUTH_NONCE_COOKIE);
   return res;
 }
