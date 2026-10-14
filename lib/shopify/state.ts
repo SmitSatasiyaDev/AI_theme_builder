@@ -1,13 +1,10 @@
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { requireEnv } from "../env";
 
 // Signs/verifies the OAuth `state` param so the callback can trust which org
 // initiated the install without re-deriving it from user-controlled input.
 function getSecret(): string {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) {
-    throw new Error("AUTH_SECRET is not set");
-  }
-  return secret;
+  return requireEnv("AUTH_SECRET");
 }
 
 export function createOAuthState(orgId: string): { state: string; nonce: string } {

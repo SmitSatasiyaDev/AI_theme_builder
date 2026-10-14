@@ -1,14 +1,11 @@
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "crypto";
+import { requireEnv } from "./env";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 
 function getKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY;
-  if (!secret) {
-    throw new Error("ENCRYPTION_KEY is not set");
-  }
-  return scryptSync(secret, "ai-schema-saas", 32);
+  return scryptSync(requireEnv("ENCRYPTION_KEY"), "ai-schema-saas", 32);
 }
 
 // Encrypts a secret (e.g. a Shopify access token) for storage at rest.
