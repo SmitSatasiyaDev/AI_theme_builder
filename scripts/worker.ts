@@ -20,7 +20,7 @@ try {
 }
 
 import type { Job } from "pg-boss";
-import type { Brief, StagedGenerationResult, ValidationResult } from "../lib/ai-schema/types";
+import type { Brief, MergeConflict, StagedGenerationResult, ValidationResult } from "../lib/ai-schema/types";
 import type { GenerateThemeJobData } from "../lib/queue";
 
 const { eq } = require("drizzle-orm");
@@ -38,6 +38,10 @@ const { runStagedGeneration } = require("../lib/ai-schema/generation");
 const { validateCandidate } = require("../lib/ai-schema/validation");
 const { mergeThemeState } = require("../lib/ai-schema/merge");
 const instrumentation = require("../lib/ai-schema/instrumentation");
+
+function formatConflicts(conflicts: MergeConflict[]): string {
+  return conflicts.map((c) => `[${c.code}] ${c.message}`).join("; ");
+}
 
 /** The per-template slice of a job's stored resultJson (read back by the generate page/chat). */
 function templateResultSummary(generated: StagedGenerationResult, candidateValidation: ValidationResult) {
@@ -147,9 +151,7 @@ async function processGenerateTheme(jobId: string) {
       requestId: `${jobId}:index`
     });
     if (!mergedIndex.valid) {
-      throw new Error(
-        `Merge failed for index: ${mergedIndex.conflicts.map((c: { code: string; message: string }) => `[${c.code}] ${c.message}`).join("; ")}`
-      );
+      throw new Error(`Merge failed for index: ${formatConflicts(mergedIndex.conflicts)}`);
     }
 
     const mergedProduct = mergeThemeState(mergedIndex.mergedThemeState, {
@@ -160,9 +162,7 @@ async function processGenerateTheme(jobId: string) {
       requestId: `${jobId}:product`
     });
     if (!mergedProduct.valid) {
-      throw new Error(
-        `Merge failed for product: ${mergedProduct.conflicts.map((c: { code: string; message: string }) => `[${c.code}] ${c.message}`).join("; ")}`
-      );
+      throw new Error(`Merge failed for product: ${formatConflicts(mergedProduct.conflicts)}`);
     }
     const mergeMs = Date.now() - mergeStart;
 
