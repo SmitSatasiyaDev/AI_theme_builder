@@ -14,6 +14,13 @@ export async function getStoreForOrg(orgId: string) {
   return store ?? null;
 }
 
+/** The org's connected store plus its decrypted Admin API token, or null when none is connected. */
+async function getStoreCredentials(orgId: string) {
+  const store = await getStoreForOrg(orgId);
+  if (!store) return null;
+  return { shopDomain: store.shopDomain, accessToken: decryptSecret(store.accessTokenEncrypted) };
+}
+
 async function shopifyGraphQL<T>(
   shopDomain: string,
   accessToken: string,
@@ -75,13 +82,12 @@ type ProductsResponse = {
 };
 
 export async function getProductsForOrg(orgId: string, first = 20) {
-  const store = await getStoreForOrg(orgId);
-  if (!store) {
+  const credentials = await getStoreCredentials(orgId);
+  if (!credentials) {
     throw new Error("No Shopify store connected for this organization");
   }
 
-  const accessToken = decryptSecret(store.accessTokenEncrypted);
-  const data = await shopifyGraphQL<ProductsResponse>(store.shopDomain, accessToken, PRODUCTS_QUERY, {
+  const data = await shopifyGraphQL<ProductsResponse>(credentials.shopDomain, credentials.accessToken, PRODUCTS_QUERY, {
     first,
   });
 
@@ -157,13 +163,12 @@ type PreviewProductsResponse = { products: { edges: { node: ShopifyPreviewProduc
  * "Sold out" everywhere, and the theme's own "only intended for product pages" fallback.
  */
 export async function getRepresentativeProductForOrg(orgId: string): Promise<ShopifyPreviewProduct | null> {
-  const store = await getStoreForOrg(orgId);
-  if (!store) return null;
+  const credentials = await getStoreCredentials(orgId);
+  if (!credentials) return null;
 
-  const accessToken = decryptSecret(store.accessTokenEncrypted);
   const data = await shopifyGraphQL<PreviewProductsResponse>(
-    store.shopDomain,
-    accessToken,
+    credentials.shopDomain,
+    credentials.accessToken,
     PREVIEW_PRODUCT_QUERY,
     { first: 5 },
   );
