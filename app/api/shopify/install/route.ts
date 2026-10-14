@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/actions/organizations";
+import { requireOrgMembership } from "@/lib/organizations";
 import { OAUTH_NONCE_COOKIE, createOAuthState } from "@/lib/shopify/state";
 import { isValidShopDomain } from "@/lib/shopify/shop-domain";
 

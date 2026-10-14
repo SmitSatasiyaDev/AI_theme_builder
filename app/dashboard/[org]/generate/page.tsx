@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/actions/organizations";
+import { requireOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { getAsset, getMainThemeId } from "@/lib/ai-schema/local-theme-fs";

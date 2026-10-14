@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
-import { getUserOrganizations, createOrganization } from "@/lib/actions/organizations";
+import { createOrganization } from "@/lib/actions/organizations";
+import { getUserOrganizations } from "@/lib/organizations";
 
 export default async function DashboardIndexPage() {
   const session = await auth();

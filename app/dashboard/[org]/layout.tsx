@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/actions/organizations";
+import { requireOrgMembership } from "@/lib/organizations";
 
 export default async function OrgLayout({
   children,

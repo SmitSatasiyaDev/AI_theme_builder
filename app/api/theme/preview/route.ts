@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/actions/organizations";
+import { requireOrgMembership } from "@/lib/organizations";
 import { getRepresentativeProductForOrg, getStoreForOrg, type ShopifyPreviewProduct } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { getAsset, getMainThemeId } from "@/lib/ai-schema/local-theme-fs";

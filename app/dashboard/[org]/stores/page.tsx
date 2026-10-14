@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/actions/organizations";
+import { requireOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg, getProductsForOrg } from "@/lib/shopify/client";
 import { SHOP_DOMAIN_PATTERN } from "@/lib/shopify/shop-domain";
 
