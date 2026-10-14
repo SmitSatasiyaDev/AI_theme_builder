@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Field } from "@base-ui/react/field";
+import { errorMessage } from "@/lib/errors";
 
 type EditTurnResult = {
   sessionId: string;
@@ -188,7 +189,7 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
         onRequestFullGeneration?.(text);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       setError(message);
       setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${message}` }]);
     } finally {
@@ -218,7 +219,7 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
       setCanApply(false);
       onApplied?.();
     } catch (err) {
-      setApplyMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setApplyMessage(`Error: ${errorMessage(err)}`);
     } finally {
       setApplying(false);
     }

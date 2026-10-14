@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { Field } from "@base-ui/react/field";
 import { fetcher } from "@/lib/fetcher";
+import { errorMessage } from "@/lib/errors";
 import type { PreviewConfigByTemplate } from "./theme-preview-panel";
 
 type GenerationConfig = { sections: Record<string, unknown>; order: string[] };
@@ -181,7 +182,7 @@ export function GenerateChatPanel({
         ]);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       setError(message);
       setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${message}` }]);
     } finally {
@@ -204,7 +205,7 @@ export function GenerateChatPanel({
       setApplyResult(body);
       onApplied?.();
     } catch (err) {
-      setApplyError(err instanceof Error ? err.message : String(err));
+      setApplyError(errorMessage(err));
     } finally {
       setApplying(false);
     }

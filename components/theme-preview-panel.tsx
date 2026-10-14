@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import { errorMessage } from "@/lib/errors";
 import { PreviewFrame } from "./preview-frame";
 
 type GenerationConfig = { sections: Record<string, unknown>; order: string[] };
@@ -83,7 +84,7 @@ export function ThemePreviewPanel({
       </div>
       {error ? (
         <div className="flex-1 overflow-auto p-4 text-sm text-red-600">
-          {error instanceof Error ? error.message : String(error)}
+          {errorMessage(error)}
         </div>
       ) : (
         <div className="flex-1 overflow-hidden">
