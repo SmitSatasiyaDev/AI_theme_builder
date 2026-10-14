@@ -26,6 +26,7 @@ const { eq } = require("drizzle-orm");
 const { db } = require("../db");
 const { generationJobs, shopifyStores } = require("../db/schema");
 const { decryptSecret } = require("../lib/crypto");
+const { errorMessage } = require("../lib/errors");
 const { getBoss, GENERATE_THEME_QUEUE } = require("../lib/queue");
 type GenerateThemeJobData = { jobId: string };
 
@@ -245,7 +246,7 @@ async function processGenerateTheme(jobId: string) {
     console.error(`[worker] job ${jobId} failed`, error);
     await db.update(generationJobs).set({
       status: "failed",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: errorMessage(error),
       completedAt: new Date()
     }).where(eq(generationJobs.id, jobId));
   }

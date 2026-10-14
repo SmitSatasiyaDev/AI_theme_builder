@@ -10,6 +10,7 @@ import { ResolveContext, defaultResolveContext, resolveSettings } from "@/lib/sh
 import { defaultLinkLists } from "@/lib/shopify-compat/setting-drops";
 import { normalizeRenderTagArgs } from "@/lib/shopify-compat/render-args";
 import type { GenerationConfig, SectionInstance } from "@/lib/ai-schema/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Renders a Shopify-native template JSON — the same shape `GenerationConfig` already is
@@ -158,8 +159,7 @@ async function renderSection(
   } catch (error) {
     // One broken section must not blank the whole page — the preview degrades to a visible
     // marker so every other section still renders.
-    const message = error instanceof Error ? error.message : String(error);
-    inner = `<!-- preview: "${instance.type}" failed to render: ${message.replace(/-->/g, "")} -->`;
+    inner = `<!-- preview: "${instance.type}" failed to render: ${errorMessage(error).replace(/-->/g, "")} -->`;
   }
 
   return `<div data-preview-section-id="${id}" data-preview-section-type="${instance.type}">${inner}</div>`;

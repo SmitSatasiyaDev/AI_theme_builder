@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import postgres from "postgres";
 import type { Sql } from "postgres";
+import { errorMessage } from "../lib/errors";
 
 try {
   // Same as the worker: Node's built-in loader reads .env only, not .env.local.
@@ -131,7 +132,7 @@ async function repl(sql: Sql, url: string): Promise<void> {
       try {
         await run(sql, query);
       } catch (error) {
-        console.error(String(error instanceof Error ? error.message : error));
+        console.error(errorMessage(error));
       }
     }
     prompt();
@@ -191,7 +192,7 @@ async function main(): Promise<number> {
     }
     return 0;
   } catch (error) {
-    console.error(String(error instanceof Error ? error.message : error));
+    console.error(errorMessage(error));
     return 1;
   } finally {
     await sql.end();
