@@ -41,6 +41,20 @@ async function resolveStore(orgSlug: string | undefined, userId: string) {
   return { store } as const;
 }
 
+type PreviewStore = { orgId: string; shopDomain: string };
+
+async function renderPreview(store: PreviewStore, config: GenerationConfig, templateName: string) {
+  const product = await resolvePreviewProduct(store.orgId);
+  const html = await renderTemplate({
+    config,
+    storeName: store.shopDomain,
+    templateName,
+    readTemplate: createLocalThemeReader(),
+    product,
+  });
+  return NextResponse.json({ html, empty: false });
+}
+
 /**
  * Renders a template through the ported Liquid engine (lib/preview/template-renderer.ts) and
  * returns HTML for the preview iframe (components/preview-frame.tsx) to display via srcDoc.
@@ -78,15 +92,7 @@ export async function GET(req: NextRequest) {
     return jsonError(`templates/${templateName}.json is not valid JSON`, 500);
   }
 
-  const product = await resolvePreviewProduct(store.orgId);
-  const html = await renderTemplate({
-    config,
-    storeName: store.shopDomain,
-    templateName,
-    readTemplate: createLocalThemeReader(),
-    product
-  });
-  return NextResponse.json({ html, empty: false });
+  return renderPreview(store, config, templateName);
 }
 
 export async function POST(req: NextRequest) {
@@ -107,13 +113,5 @@ export async function POST(req: NextRequest) {
   if ("error" in resolved) return resolved.error;
   const { store } = resolved;
 
-  const product = await resolvePreviewProduct(store.orgId);
-  const html = await renderTemplate({
-    config,
-    storeName: store.shopDomain,
-    templateName,
-    readTemplate: createLocalThemeReader(),
-    product
-  });
-  return NextResponse.json({ html, empty: false });
+  return renderPreview(store, config, templateName);
 }
