@@ -45,7 +45,7 @@ const THINKING_STAGES = ["Reading your theme…", "Deciding on a section…", "G
 // capability discoverable without turning the chat into a full section picker up front. The rest
 // of the catalog (allowed_on index/product, so it's visible on the Home/Product preview tabs) is
 // one click away via "+ More sections" for merchants who want to browse everything.
-const ADD_SECTION_SUGGESTIONS = [
+const ADD_SECTION_SUGGESTIONS: SectionSuggestion[] = [
   { label: "+ Testimonials", message: "Add a customer testimonials section" },
   { label: "+ Newsletter signup", message: "Add a newsletter signup section" },
   { label: "+ Featured products", message: "Add a featured collection section" },
@@ -55,7 +55,7 @@ const ADD_SECTION_SUGGESTIONS = [
 // Excludes: footer / main-product (structural singletons, not merchant-addable extras),
 // custom-columns (superseded by custom-columns-new), and contact-form / track-order /
 // email-signup-banner (allowed only on page/password templates, which the preview doesn't show).
-const MORE_SECTION_SUGGESTIONS = [
+const MORE_SECTION_SUGGESTIONS: SectionSuggestion[] = [
   { label: "+ Slideshow", message: "Add a slideshow section" },
   { label: "+ Image with text", message: "Add an image with text section" },
   { label: "+ Image/video slider", message: "Add an image/video slider section" },
@@ -120,6 +120,29 @@ function summarizeResult(result: EditTurnResult): string {
     default:
       return `Status: ${result.status}`;
   }
+}
+
+type SectionSuggestion = { label: string; message: string; onlyOn?: string };
+
+function SuggestionButton({
+  suggestion,
+  disabled,
+  onPick,
+}: {
+  suggestion: SectionSuggestion;
+  disabled: boolean;
+  onPick: (message: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onPick(suggestion.message)}
+      className="rounded-full border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+    >
+      {suggestion.label}
+    </button>
+  );
 }
 
 interface EditChatPanelProps {
@@ -232,27 +255,11 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
 
       <div className="flex flex-wrap gap-1.5">
         {ADD_SECTION_SUGGESTIONS.map((suggestion) => (
-          <button
-            key={suggestion.label}
-            type="button"
-            disabled={sending}
-            onClick={() => submitMessage(suggestion.message)}
-            className="rounded-full border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-          >
-            {suggestion.label}
-          </button>
+          <SuggestionButton key={suggestion.label} suggestion={suggestion} disabled={sending} onPick={submitMessage} />
         ))}
         {showMoreSections &&
           MORE_SECTION_SUGGESTIONS.filter((s) => !s.onlyOn || s.onlyOn === templateName).map((suggestion) => (
-            <button
-              key={suggestion.label}
-              type="button"
-              disabled={sending}
-              onClick={() => submitMessage(suggestion.message)}
-              className="rounded-full border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-            >
-              {suggestion.label}
-            </button>
+            <SuggestionButton key={suggestion.label} suggestion={suggestion} disabled={sending} onPick={submitMessage} />
           ))}
         <button
           type="button"
