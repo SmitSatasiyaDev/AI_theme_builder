@@ -6,8 +6,7 @@ import { organizations } from "@/db/schema/organizations";
 import { encryptSecret } from "@/lib/crypto";
 import { verifyOAuthState } from "@/lib/shopify/state";
 import { verifyShopifyHmac } from "@/lib/shopify/verify";
-
-const SHOP_DOMAIN_RE = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
+import { isValidShopDomain } from "@/lib/shopify/shop-domain";
 
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
@@ -16,7 +15,7 @@ export async function GET(req: NextRequest) {
   const state = params.get("state");
   const hmac = params.get("hmac");
 
-  if (!shop || !SHOP_DOMAIN_RE.test(shop) || !code || !state || !hmac) {
+  if (!isValidShopDomain(shop) || !code || !state || !hmac) {
     return NextResponse.json({ error: "Invalid callback request" }, { status: 400 });
   }
 

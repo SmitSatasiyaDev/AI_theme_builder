@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
 import { getStoreForOrg, getProductsForOrg } from "@/lib/shopify/client";
+import { SHOP_DOMAIN_PATTERN } from "@/lib/shopify/shop-domain";
 
 export default async function StoresPage({ params }: { params: Promise<{ org: string }> }) {
   const { org: orgSlug } = await params;
@@ -30,7 +31,7 @@ export default async function StoresPage({ params }: { params: Promise<{ org: st
             name="shop"
             placeholder="your-store.myshopify.com"
             required
-            pattern="^[a-z0-9][a-z0-9-]*\.myshopify\.com$"
+            pattern={SHOP_DOMAIN_PATTERN}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
           <button type="submit" className="rounded-md bg-black px-4 py-2 text-sm text-white">

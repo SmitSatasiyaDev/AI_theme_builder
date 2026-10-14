@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
 import { createOAuthState } from "@/lib/shopify/state";
-
-const SHOP_DOMAIN_RE = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
+import { isValidShopDomain } from "@/lib/shopify/shop-domain";
 
 export async function GET(req: NextRequest) {
   const shop = req.nextUrl.searchParams.get("shop");
   const orgSlug = req.nextUrl.searchParams.get("org");
 
-  if (!shop || !SHOP_DOMAIN_RE.test(shop)) {
+  if (!isValidShopDomain(shop)) {
     return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });
   }
   if (!orgSlug) {
