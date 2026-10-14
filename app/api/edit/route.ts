@@ -7,7 +7,7 @@ import { decryptSecret } from "@/lib/crypto";
 import { errorMessage } from "@/lib/errors";
 import { loadSchemas } from "@/lib/ai-schema/ai-client";
 import { buildThemeState, composeThemeStateId } from "@/lib/ai-schema/theme-state";
-import { composeSessionId, parseSessionId } from "@/lib/ai-schema/conversation-session";
+import { resolveRequestedSessionId } from "@/lib/ai-schema/conversation-session";
 import { runConversationalEdit } from "@/lib/ai-schema/conversational-edit";
 
 export async function POST(req: NextRequest) {
@@ -37,14 +37,9 @@ export async function POST(req: NextRequest) {
     return jsonError("Connect a Shopify store first", 400);
   }
 
-  let sessionId = requestedSessionId;
-  if (sessionId) {
-    const { storeId } = parseSessionId(sessionId);
-    if (storeId !== store.id) {
-      return jsonError("Session does not belong to this store", 403);
-    }
-  } else {
-    sessionId = composeSessionId(store.id, userId);
+  const sessionId = resolveRequestedSessionId(requestedSessionId, store.id, userId);
+  if (!sessionId) {
+    return jsonError("Session does not belong to this store", 403);
   }
 
   const accessToken = decryptSecret(store.accessTokenEncrypted);

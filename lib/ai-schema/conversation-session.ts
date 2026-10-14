@@ -181,6 +181,16 @@ export function parseSessionId(sessionId: string | null | undefined): { storeId:
     return { storeId: parts[0], userId: parts[1] };
 }
 
+/**
+ * The session id a chat request should continue: the client-supplied one when it belongs to
+ * `storeId`, a fresh one when none was supplied, or null when the supplied id belongs to a
+ * different store (the caller must reject the request).
+ */
+export function resolveRequestedSessionId(requestedSessionId: string | undefined, storeId: string, userId: string): string | null {
+    if (!requestedSessionId) return composeSessionId(storeId, userId);
+    return parseSessionId(requestedSessionId).storeId === storeId ? requestedSessionId : null;
+}
+
 export async function saveSession(session: Session): Promise<Session> {
     const { storeId, userId } = parseSessionId(session.sessionId);
     const toSave: Session = { ...session, updatedAt: new Date().toISOString() };

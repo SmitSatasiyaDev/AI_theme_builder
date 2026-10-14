@@ -6,7 +6,7 @@ import { getStoreForOrg } from "@/lib/shopify/client";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
 import { getBoss, GENERATE_THEME_QUEUE } from "@/lib/queue";
-import { composeSessionId, parseSessionId } from "@/lib/ai-schema/conversation-session";
+import { resolveRequestedSessionId } from "@/lib/ai-schema/conversation-session";
 import { createEmptyBrief } from "@/lib/ai-schema/brief-logic";
 import { finalizeBrief, isIntakeComplete, runBriefIntakeTurn } from "@/lib/ai-schema/brief-intake";
 import {
@@ -43,14 +43,9 @@ export async function POST(req: NextRequest) {
     return jsonError("Connect a Shopify store first", 400);
   }
 
-  let sessionId = requestedSessionId;
-  if (sessionId) {
-    const { storeId } = parseSessionId(sessionId);
-    if (storeId !== store.id) {
-      return jsonError("Session does not belong to this store", 403);
-    }
-  } else {
-    sessionId = composeSessionId(store.id, userId);
+  const sessionId = resolveRequestedSessionId(requestedSessionId, store.id, userId);
+  if (!sessionId) {
+    return jsonError("Session does not belong to this store", 403);
   }
 
   let state = (await loadIntakeSession(sessionId)) ?? createIntakeSession(sessionId);
