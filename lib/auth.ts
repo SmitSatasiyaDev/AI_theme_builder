@@ -15,15 +15,13 @@ const providers: Provider[] = [
       password: { label: "Password", type: "password" },
     },
     authorize: async (credentials) => {
-      const email = credentials?.email as string | undefined;
+      // Registration (lib/actions/auth.ts) stores emails trimmed and lowercased, so a
+      // sign-in typed with different casing must be normalized the same way to match.
+      const email = (credentials?.email as string | undefined)?.trim().toLowerCase();
       const password = credentials?.password as string | undefined;
       if (!email || !password) return null;
 
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, email))
-        .limit(1);
+      const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
       if (!user?.passwordHash) return null;
 
       const valid = await bcrypt.compare(password, user.passwordHash);
