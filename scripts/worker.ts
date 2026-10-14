@@ -20,7 +20,7 @@ try {
 }
 
 import type { Job } from "pg-boss";
-import type { Brief } from "../lib/ai-schema/types";
+import type { Brief, StagedGenerationResult, ValidationResult } from "../lib/ai-schema/types";
 import type { GenerateThemeJobData } from "../lib/queue";
 
 const { eq } = require("drizzle-orm");
@@ -38,6 +38,23 @@ const { runStagedGeneration } = require("../lib/ai-schema/generation");
 const { validateCandidate } = require("../lib/ai-schema/validation");
 const { mergeThemeState } = require("../lib/ai-schema/merge");
 const instrumentation = require("../lib/ai-schema/instrumentation");
+
+/** The per-template slice of a job's stored resultJson (read back by the generate page/chat). */
+function templateResultSummary(generated: StagedGenerationResult, candidateValidation: ValidationResult) {
+  return {
+    plan: generated.plan,
+    config: generated.config,
+    warnings: generated.warnings,
+    candidateValidation,
+    planRepaired: generated.planRepaired,
+    configRepaired: generated.configRepaired,
+    aiCallCount: generated.aiCallCount,
+    retryCount: generated.retryCount,
+    deterministicFixCount: generated.deterministicFixCount,
+    durationMs: generated.durationMs,
+    timings: generated.timings
+  };
+}
 
 async function processGenerateTheme(jobId: string) {
   const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
@@ -193,32 +210,8 @@ async function processGenerateTheme(jobId: string) {
 
     await completeJob(jobId, {
       templates: {
-        index: {
-          plan: generatedIndex.plan,
-          config: generatedIndex.config,
-          warnings: generatedIndex.warnings,
-          candidateValidation: indexValidation,
-          planRepaired: generatedIndex.planRepaired,
-          configRepaired: generatedIndex.configRepaired,
-          aiCallCount: generatedIndex.aiCallCount,
-          retryCount: generatedIndex.retryCount,
-          deterministicFixCount: generatedIndex.deterministicFixCount,
-          durationMs: generatedIndex.durationMs,
-          timings: generatedIndex.timings
-        },
-        product: {
-          plan: generatedProduct.plan,
-          config: generatedProduct.config,
-          warnings: generatedProduct.warnings,
-          candidateValidation: productValidation,
-          planRepaired: generatedProduct.planRepaired,
-          configRepaired: generatedProduct.configRepaired,
-          aiCallCount: generatedProduct.aiCallCount,
-          retryCount: generatedProduct.retryCount,
-          deterministicFixCount: generatedProduct.deterministicFixCount,
-          durationMs: generatedProduct.durationMs,
-          timings: generatedProduct.timings
-        }
+        index: templateResultSummary(generatedIndex, indexValidation),
+        product: templateResultSummary(generatedProduct, productValidation)
       },
       mergeSummary: combinedSummary,
       mergedThemeState: mergedProduct.mergedThemeState,
