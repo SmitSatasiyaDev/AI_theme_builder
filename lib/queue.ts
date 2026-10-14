@@ -1,4 +1,5 @@
 import { PgBoss } from "pg-boss";
+import { requireEnv } from "./env";
 
 export const GENERATE_THEME_QUEUE = "generate-theme";
 
@@ -9,11 +10,7 @@ export function getBoss(): Promise<PgBoss> {
     return bossPromise;
   }
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is not set");
-  }
-  const boss = new PgBoss(connectionString);
+  const boss = new PgBoss(requireEnv("DATABASE_URL"));
   boss.on("error", (err: Error) => console.error("[pg-boss]", err));
 
   const promise = boss.start().then(async () => {
