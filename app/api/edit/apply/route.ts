@@ -12,9 +12,19 @@ import { loadSchemas } from "@/lib/ai-schema/ai-client";
 import { buildThemeState } from "@/lib/ai-schema/theme-state";
 import { loadSession, parseSessionId } from "@/lib/ai-schema/conversation-session";
 import { applyOperationsToThemeState, applyTargetsForOperations } from "@/lib/ai-schema/operations";
-import type { Operation } from "@/lib/ai-schema/types";
+import type { Operation, Session } from "@/lib/ai-schema/types";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
+
+/**
+ * The operations the session's last proposal produced. Older sessions saved before operations
+ * were tracked as an array only have `lastOperation` (singular) — fall back to that so an
+ * in-flight session isn't broken.
+ */
+function pendingOperations(session: Session): Operation[] {
+  if (session.lastOperations?.length) return session.lastOperations;
+  return session.lastOperation ? [session.lastOperation] : [];
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -47,14 +57,7 @@ export async function POST(req: NextRequest) {
     return jsonError("Session not found", 404);
   }
 
-  // Older sessions saved before operations were tracked as an array only
-  // have `lastOperation` (singular) — fall back to that so an in-flight
-  // session isn't broken by this change.
-  const operations: Operation[] = editSession.lastOperations?.length
-    ? editSession.lastOperations
-    : editSession.lastOperation
-      ? [editSession.lastOperation]
-      : [];
+  const operations = pendingOperations(editSession);
 
   if (operations.length === 0) {
     return jsonError("Nothing to apply for this session yet", 400);
