@@ -4,7 +4,8 @@ import useSWR from "swr";
 import { errorMessage } from "@/lib/errors";
 import { PreviewFrame } from "./preview-frame";
 
-type GenerationConfig = { sections: Record<string, unknown>; order: string[] };
+/** The template JSON shape the preview renders — client-side mirror of lib/ai-schema GenerationConfig. */
+export type GenerationConfig = { sections: Record<string, unknown>; order: string[] };
 export type PreviewConfigByTemplate = Partial<Record<string, GenerationConfig>>;
 
 interface ThemePreviewPanelProps {

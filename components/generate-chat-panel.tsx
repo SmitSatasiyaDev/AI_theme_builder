@@ -5,9 +5,7 @@ import useSWR from "swr";
 import { Field } from "@base-ui/react/field";
 import { fetcher } from "@/lib/fetcher";
 import { errorMessage } from "@/lib/errors";
-import type { PreviewConfigByTemplate } from "./theme-preview-panel";
-
-type GenerationConfig = { sections: Record<string, unknown>; order: string[] };
+import type { GenerationConfig, PreviewConfigByTemplate } from "./theme-preview-panel";
 
 type TemplateResult = {
   plan: { order: string[]; sections: Record<string, { type: string; blockTypes?: string[] }> };
