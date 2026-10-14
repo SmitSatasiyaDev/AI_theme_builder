@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
+import { errorMessage } from "@/lib/errors";
 import { loadSchemas } from "@/lib/ai-schema/ai-client";
 import { buildThemeState, composeThemeStateId } from "@/lib/ai-schema/theme-state";
 import { composeSessionId, parseSessionId } from "@/lib/ai-schema/conversation-session";
@@ -77,7 +78,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    const messageText = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: messageText }, { status: 502 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 502 });
   }
 }

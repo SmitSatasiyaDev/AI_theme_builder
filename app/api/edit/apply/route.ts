@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgMembership } from "@/lib/actions/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
+import { errorMessage } from "@/lib/errors";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
 import { loadSchemas } from "@/lib/ai-schema/ai-client";
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ applyJobId: applyJob.id, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     await db.update(generationJobs).set({
       status: "failed",
       errorMessage: message,

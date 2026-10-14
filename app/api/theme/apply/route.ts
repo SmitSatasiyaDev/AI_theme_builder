@@ -6,6 +6,7 @@ import { generationJobs } from "@/db/schema/generation";
 import { organizationMembers } from "@/db/schema/organizations";
 import { shopifyStores } from "@/db/schema/shopify";
 import { decryptSecret } from "@/lib/crypto";
+import { errorMessage } from "@/lib/errors";
 import type { ThemeState } from "@/lib/ai-schema/types";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ applyJobId: applyJob.id, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     await db.update(generationJobs).set({
       status: "failed",
       errorMessage: message,
