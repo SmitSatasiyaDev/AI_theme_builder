@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { db } from "@/db";
 import { shopifyStores } from "@/db/schema/shopify";
 import { organizations } from "@/db/schema/organizations";
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
   const hmac = params.get("hmac");
 
   if (!isValidShopDomain(shop) || !code || !state || !hmac) {
-    return NextResponse.json({ error: "Invalid callback request" }, { status: 400 });
+    return jsonError("Invalid callback request", 400);
   }
 
   const apiKey = process.env.SHOPIFY_API_KEY;
@@ -26,17 +27,17 @@ export async function GET(req: NextRequest) {
   }
 
   if (!verifyShopifyHmac(params, apiSecret)) {
-    return NextResponse.json({ error: "HMAC verification failed" }, { status: 401 });
+    return jsonError("HMAC verification failed", 401);
   }
 
   const nonce = req.cookies.get(OAUTH_NONCE_COOKIE)?.value;
   if (!nonce) {
-    return NextResponse.json({ error: "Missing OAuth session" }, { status: 400 });
+    return jsonError("Missing OAuth session", 400);
   }
 
   const verified = verifyOAuthState(state, nonce);
   if (!verified) {
-    return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+    return jsonError("Invalid OAuth state", 400);
   }
 
   const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
     body: JSON.stringify({ client_id: apiKey, client_secret: apiSecret, code }),
   });
   if (!tokenRes.ok) {
-    return NextResponse.json({ error: "Failed to exchange code for token" }, { status: 502 });
+    return jsonError("Failed to exchange code for token", 502);
   }
   const { access_token: accessToken, scope } = (await tokenRes.json()) as {
     access_token: string;

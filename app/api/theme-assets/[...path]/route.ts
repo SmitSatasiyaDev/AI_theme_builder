@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import fs from "fs/promises";
 import path from "path";
 import { getThemeRoot } from "@/lib/ai-schema/local-theme-fs";
@@ -38,19 +39,19 @@ export async function GET(
     try {
         root = await getThemeRoot();
     } catch (error) {
-        return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+        return jsonError((error as Error).message, 500);
     }
 
     const resolved = path.resolve(root, relative);
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-        return NextResponse.json({ error: "Invalid asset path" }, { status: 400 });
+        return jsonError("Invalid asset path", 400);
     }
 
     let data: Buffer;
     try {
         data = await fs.readFile(resolved);
     } catch {
-        return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+        return jsonError("Asset not found", 404);
     }
 
     const ext = path.extname(resolved).toLowerCase();

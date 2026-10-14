@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
@@ -10,16 +11,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ job
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    return jsonError("Not signed in", 401);
   }
 
   const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
   if (!job) {
-    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    return jsonError("Job not found", 404);
   }
 
   if (!(await isOrgMember(job.orgId, userId))) {
-    return NextResponse.json({ error: "Not authorized to view this job" }, { status: 403 });
+    return jsonError("Not authorized to view this job", 403);
   }
 
   return NextResponse.json({

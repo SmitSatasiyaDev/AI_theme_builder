@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
@@ -19,31 +20,31 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    return jsonError("Not signed in", 401);
   }
 
   const body = await req.json().catch(() => null);
   const orgSlug = body?.org as string | undefined;
   const sessionId = body?.sessionId as string | undefined;
   if (!orgSlug || !sessionId) {
-    return NextResponse.json({ error: "org and sessionId are required" }, { status: 400 });
+    return jsonError("org and sessionId are required", 400);
   }
 
   const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
-    return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
+    return jsonError("Not a member of this organization", 403);
   }
 
   const { storeId } = parseSessionId(sessionId);
 
   const store = await getStoreForOrg(membership.org.id);
   if (!store || store.id !== storeId || !store.activeThemeId) {
-    return NextResponse.json({ error: "Session does not belong to this store" }, { status: 403 });
+    return jsonError("Session does not belong to this store", 403);
   }
 
   const editSession = await loadSession(sessionId);
   if (!editSession) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    return jsonError("Session not found", 404);
   }
 
   // Older sessions saved before operations were tracked as an array only
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       : [];
 
   if (operations.length === 0) {
-    return NextResponse.json({ error: "Nothing to apply for this session yet" }, { status: 400 });
+    return jsonError("Nothing to apply for this session yet", 400);
   }
 
   const accessToken = decryptSecret(store.accessTokenEncrypted);
@@ -107,10 +108,7 @@ export async function POST(req: NextRequest) {
         errorMessage: message,
         completedAt: new Date()
       }).where(eq(generationJobs.id, applyJob.id));
-      return NextResponse.json(
-        { error: `This change no longer applies to the current theme (it may have changed since you proposed this edit): ${message}` },
-        { status: 409 }
-      );
+      return jsonError(`This change no longer applies to the current theme (it may have changed since you proposed this edit): ${message}`, 409);
     }
 
     const changedTemplates = [
@@ -142,6 +140,6 @@ export async function POST(req: NextRequest) {
       completedAt: new Date()
     }).where(eq(generationJobs.id, applyJob.id));
 
-    return NextResponse.json({ error: message }, { status: 502 });
+    return jsonError(message, 502);
   }
 }

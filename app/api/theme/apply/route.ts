@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
@@ -18,31 +19,31 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    return jsonError("Not signed in", 401);
   }
 
   const body = await req.json().catch(() => null);
   const jobId = body?.jobId as string | undefined;
   if (!jobId) {
-    return NextResponse.json({ error: "jobId is required" }, { status: 400 });
+    return jsonError("jobId is required", 400);
   }
 
   const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
   if (!job) {
-    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    return jsonError("Job not found", 404);
   }
 
   if (!(await isOrgMember(job.orgId, userId))) {
-    return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    return jsonError("Not authorized", 403);
   }
 
   if (job.status !== "completed" || !job.resultJson) {
-    return NextResponse.json({ error: "Job has not completed successfully yet" }, { status: 400 });
+    return jsonError("Job has not completed successfully yet", 400);
   }
 
   const [store] = await db.select().from(shopifyStores).where(eq(shopifyStores.id, job.storeId)).limit(1);
   if (!store || !store.activeThemeId) {
-    return NextResponse.json({ error: "Connected store is missing an active theme" }, { status: 400 });
+    return jsonError("Connected store is missing an active theme", 400);
   }
 
   const { mergedThemeState, mergeSummary } = job.resultJson as GenerationResult;
@@ -85,6 +86,6 @@ export async function POST(req: NextRequest) {
       completedAt: new Date()
     }).where(eq(generationJobs.id, applyJob.id));
 
-    return NextResponse.json({ error: message }, { status: 502 });
+    return jsonError(message, 502);
   }
 }

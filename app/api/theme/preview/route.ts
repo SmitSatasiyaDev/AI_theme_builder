@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/organizations";
 import { getRepresentativeProductForOrg, getStoreForOrg, type ShopifyPreviewProduct } from "@/lib/shopify/client";
@@ -28,14 +29,14 @@ function isGenerationConfig(value: unknown): value is GenerationConfig {
 }
 
 async function resolveStore(orgSlug: string | undefined, userId: string) {
-    if (!orgSlug) return { error: NextResponse.json({ error: "org is required" }, { status: 400 }) } as const;
+    if (!orgSlug) return { error: jsonError("org is required", 400) } as const;
     const membership = await getOrgMembership(orgSlug, userId);
     if (!membership) {
-        return { error: NextResponse.json({ error: "Not a member of this organization" }, { status: 403 }) } as const;
+        return { error: jsonError("Not a member of this organization", 403) } as const;
     }
     const store = await getStoreForOrg(membership.org.id);
     if (!store) {
-        return { error: NextResponse.json({ error: "Connect a Shopify store first" }, { status: 400 }) } as const;
+        return { error: jsonError("Connect a Shopify store first", 400) } as const;
     }
     return { store } as const;
 }
@@ -52,7 +53,7 @@ async function resolveStore(orgSlug: string | undefined, userId: string) {
 export async function GET(req: NextRequest) {
     const session = await auth();
     const userId = session?.user?.id;
-    if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    if (!userId) return jsonError("Not signed in", 401);
 
     const { searchParams } = new URL(req.url);
     const orgSlug = searchParams.get("org") ?? undefined;
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
     try {
         config = JSON.parse(asset.value);
     } catch {
-        return NextResponse.json({ error: `templates/${templateName}.json is not valid JSON` }, { status: 500 });
+        return jsonError(`templates/${templateName}.json is not valid JSON`, 500);
     }
 
     const product = await resolvePreviewProduct(store.orgId);
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     const session = await auth();
     const userId = session?.user?.id;
-    if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    if (!userId) return jsonError("Not signed in", 401);
 
     const body = await req.json().catch(() => null);
     const orgSlug = body?.org as string | undefined;
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
     const config = body?.config;
 
     if (!isGenerationConfig(config)) {
-        return NextResponse.json({ error: "config ({ sections, order }) is required" }, { status: 400 });
+        return jsonError("config ({ sections, order }) is required", 400);
     }
 
     const resolved = await resolveStore(orgSlug, userId);

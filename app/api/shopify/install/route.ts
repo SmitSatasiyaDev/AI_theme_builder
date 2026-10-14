@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/organizations";
 import { OAUTH_NONCE_COOKIE, createOAuthState } from "@/lib/shopify/state";
@@ -9,10 +10,10 @@ export async function GET(req: NextRequest) {
   const orgSlug = req.nextUrl.searchParams.get("org");
 
   if (!isValidShopDomain(shop)) {
-    return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });
+    return jsonError("Invalid shop domain", 400);
   }
   if (!orgSlug) {
-    return NextResponse.json({ error: "Missing org" }, { status: 400 });
+    return jsonError("Missing org", 400);
   }
 
   const session = await auth();
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
-    return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
+    return jsonError("Not a member of this organization", 403);
   }
 
   const apiKey = process.env.SHOPIFY_API_KEY;

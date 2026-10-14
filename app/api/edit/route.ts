@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    return jsonError("Not signed in", 401);
   }
 
   const body = await req.json().catch(() => null);
@@ -23,24 +24,24 @@ export async function POST(req: NextRequest) {
   const templateName = typeof body?.templateName === "string" && body.templateName ? body.templateName : "index";
 
   if (!orgSlug || !message) {
-    return NextResponse.json({ error: "org and message are required" }, { status: 400 });
+    return jsonError("org and message are required", 400);
   }
 
   const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
-    return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
+    return jsonError("Not a member of this organization", 403);
   }
 
   const store = await getStoreForOrg(membership.org.id);
   if (!store || !store.activeThemeId) {
-    return NextResponse.json({ error: "Connect a Shopify store first" }, { status: 400 });
+    return jsonError("Connect a Shopify store first", 400);
   }
 
   let sessionId = requestedSessionId;
   if (sessionId) {
     const { storeId } = parseSessionId(sessionId);
     if (storeId !== store.id) {
-      return NextResponse.json({ error: "Session does not belong to this store" }, { status: 403 });
+      return jsonError("Session does not belong to this store", 403);
     }
   } else {
     sessionId = composeSessionId(store.id, userId);
@@ -78,6 +79,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error) }, { status: 502 });
+    return jsonError(errorMessage(error), 502);
   }
 }
