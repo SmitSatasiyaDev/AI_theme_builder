@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Field } from "@base-ui/react/field";
 import { errorMessage } from "@/lib/errors";
 import { useThinkingStage } from "./use-thinking-stage";
+import { ChatInput } from "./chat-input";
 import { ChatMessageList, ThinkingBubble, type ChatMessage } from "./chat-messages";
 
 type EditTurnResult = {
@@ -180,8 +180,7 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const text = input.trim();
-    submitMessage(text);
+    submitMessage(input.trim());
   }
 
   async function handleApply() {
@@ -264,24 +263,13 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <Field.Root className="flex-1">
-          <Field.Control
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="What would you like to change?"
-            disabled={sending}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50"
-          />
-        </Field.Root>
-        <button
-          type="submit"
-          disabled={sending || !input.trim()}
-          className="rounded-md bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
-          Send
-        </button>
-      </form>
+      <ChatInput
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        placeholder="What would you like to change?"
+        disabled={sending}
+      />
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );
