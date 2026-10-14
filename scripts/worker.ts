@@ -21,6 +21,7 @@ try {
 
 import type { Job } from "pg-boss";
 import type { Brief } from "../lib/ai-schema/types";
+import type { GenerateThemeJobData } from "../lib/queue";
 
 const { eq } = require("drizzle-orm");
 const { db } = require("../db");
@@ -29,7 +30,6 @@ const { decryptSecret } = require("../lib/crypto");
 const { errorMessage } = require("../lib/errors");
 const { completeJob, failJob } = require("../lib/jobs");
 const { getBoss, GENERATE_THEME_QUEUE } = require("../lib/queue");
-type GenerateThemeJobData = { jobId: string };
 
 const { getMainThemeId } = require("../lib/ai-schema/local-theme-fs");
 const { loadSchemas } = require("../lib/ai-schema/ai-client");
