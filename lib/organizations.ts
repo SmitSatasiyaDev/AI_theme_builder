@@ -28,3 +28,13 @@ export async function getOrgMembership(orgSlug: string, userId: string) {
 
   return row ?? null;
 }
+
+/** Whether the user belongs to the org with this id. */
+export async function isOrgMember(orgId: string, userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ orgId: organizationMembers.orgId })
+    .from(organizationMembers)
+    .where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
+}

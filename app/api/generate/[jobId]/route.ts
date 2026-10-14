@@ -1,9 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
-import { organizationMembers } from "@/db/schema/organizations";
+import { isOrgMember } from "@/lib/organizations";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
@@ -18,12 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ job
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
-  const [membership] = await db
-    .select()
-    .from(organizationMembers)
-    .where(and(eq(organizationMembers.orgId, job.orgId), eq(organizationMembers.userId, userId)))
-    .limit(1);
-  if (!membership) {
+  if (!(await isOrgMember(job.orgId, userId))) {
     return NextResponse.json({ error: "Not authorized to view this job" }, { status: 403 });
   }
 

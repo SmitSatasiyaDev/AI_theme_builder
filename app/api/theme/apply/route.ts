@@ -1,9 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
-import { organizationMembers } from "@/db/schema/organizations";
+import { isOrgMember } from "@/lib/organizations";
 import { shopifyStores } from "@/db/schema/shopify";
 import { decryptSecret } from "@/lib/crypto";
 import { errorMessage } from "@/lib/errors";
@@ -32,12 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
-  const [membership] = await db
-    .select()
-    .from(organizationMembers)
-    .where(and(eq(organizationMembers.orgId, job.orgId), eq(organizationMembers.userId, userId)))
-    .limit(1);
-  if (!membership) {
+  if (!(await isOrgMember(job.orgId, userId))) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
