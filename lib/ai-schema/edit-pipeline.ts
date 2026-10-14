@@ -38,7 +38,8 @@ import {
     resolveSectionTarget,
     resolveBlockTarget,
     validateOperation,
-    applyOperationToThemeState
+    applyOperationToThemeState,
+    applyTargetsForOperations
 } from "./operations";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path);
 // esModuleInterop lets this named import work against its `module.exports`.
@@ -48,7 +49,6 @@ import type {
     EditTurnResult,
     KnownMerchantData,
     Operation,
-    OperationTarget,
     SchemaCatalog,
     SectionTargetResolution,
     TargetContext,
@@ -749,11 +749,9 @@ export async function runTargetedEdit(userPrompt: string, options: RunTargetedEd
 
     let applyResult: unknown = null;
     if (autoApply) {
-        const changedTemplates = operation!.operation === "update_global_settings" ? [] : [(operation!.target as OperationTarget).templateName!];
         applyResult = await applyThemeState(executed.themeState, {
             themeRoot,
-            changedTemplates,
-            writeGlobalSettings: operation!.operation === "update_global_settings",
+            ...applyTargetsForOperations([operation!]),
             dryRun: dryRunApply,
             requestId
         });

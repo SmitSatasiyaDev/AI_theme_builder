@@ -55,7 +55,8 @@ import {
     applyOperationToThemeState,
     validateOperationOrder,
     applyOperationsToThemeState,
-    generateOperationId
+    generateOperationId,
+    applyTargetsForOperations
 } from "./operations";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path);
 // esModuleInterop lets this named import work against its `module.exports`.
@@ -333,9 +334,8 @@ export async function proposeAndExecuteForTarget(userPrompt: string, targetConte
 
     let applyResult: unknown = null;
     if (autoApply) {
-        const changedTemplates = operation!.operation === "update_global_settings" ? [] : [operation!.target!.templateName!];
         applyResult = await applyThemeState(executed.themeState, {
-            themeRoot, changedTemplates, writeGlobalSettings: operation!.operation === "update_global_settings", dryRun: dryRunApply, requestId
+            themeRoot, ...applyTargetsForOperations([operation!]), dryRun: dryRunApply, requestId
         });
     }
 
@@ -407,9 +407,7 @@ export async function runMultiOperationTurn(clauses: string[], session: Session,
 
     let applyResult: unknown = null;
     if (ctx.autoApply) {
-        const changedTemplates = [...new Set(operations.filter(o => o.operation !== "update_global_settings").map(o => o.target!.templateName!))];
-        const writeGlobalSettings = operations.some(o => o.operation === "update_global_settings");
-        applyResult = await applyThemeState(executed.themeState, { themeRoot: ctx.themeRoot, changedTemplates, writeGlobalSettings, dryRun: ctx.dryRunApply, requestId });
+        applyResult = await applyThemeState(executed.themeState, { themeRoot: ctx.themeRoot, ...applyTargetsForOperations(operations), dryRun: ctx.dryRunApply, requestId });
     }
 
     return {

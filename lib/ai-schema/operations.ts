@@ -661,3 +661,15 @@ export function dryRunOperations(themeState: ThemeState, operations: Operation[]
         changeSummaries: result.changeSummaries
     };
 }
+
+/**
+ * Which files applying these (already-executed) operations must write: every template an
+ * operation touched, plus config/settings_data.json when any of them is a global-settings change.
+ */
+export function applyTargetsForOperations(operations: Operation[]): { changedTemplates: string[]; writeGlobalSettings: boolean } {
+    const isGlobal = (o: Operation) => o.operation === "update_global_settings";
+    return {
+        changedTemplates: [...new Set(operations.filter(o => !isGlobal(o)).map(o => o.target!.templateName!))],
+        writeGlobalSettings: operations.some(isGlobal)
+    };
+}

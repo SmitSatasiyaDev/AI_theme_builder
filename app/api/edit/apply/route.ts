@@ -11,7 +11,7 @@ import { generationJobs } from "@/db/schema/generation";
 import { loadSchemas } from "@/lib/ai-schema/ai-client";
 import { buildThemeState } from "@/lib/ai-schema/theme-state";
 import { loadSession, parseSessionId } from "@/lib/ai-schema/conversation-session";
-import { applyOperationsToThemeState } from "@/lib/ai-schema/operations";
+import { applyOperationsToThemeState, applyTargetsForOperations } from "@/lib/ai-schema/operations";
 import type { Operation } from "@/lib/ai-schema/types";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
@@ -107,10 +107,7 @@ export async function POST(req: NextRequest) {
       return jsonError(`This change no longer applies to the current theme (it may have changed since you proposed this edit): ${message}`, 409);
     }
 
-    const changedTemplates = [
-      ...new Set(operations.filter((o) => o.operation !== "update_global_settings").map((o) => o.target!.templateName!))
-    ];
-    const writeGlobalSettings = operations.some((o) => o.operation === "update_global_settings");
+    const { changedTemplates, writeGlobalSettings } = applyTargetsForOperations(operations);
 
     const result = await applyThemeState(executed.themeState, {
       shopDomain: store.shopDomain,
