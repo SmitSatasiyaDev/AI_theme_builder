@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
   const userId = session?.user?.id;
   if (!userId) return jsonError("Not signed in", 401);
 
-  const { searchParams } = new URL(req.url);
+  const { searchParams } = req.nextUrl;
   const orgSlug = searchParams.get("org") ?? undefined;
   const templateName = searchParams.get("template") || "index";
 
