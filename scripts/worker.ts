@@ -20,7 +20,7 @@ try {
 }
 
 import type { Job } from "pg-boss";
-import type { Brief, MergeConflict, StagedGenerationResult, ValidationResult } from "../lib/ai-schema/types";
+import type { Brief, MergeConflict, MergeSummary, StagedGenerationResult, ValidationResult } from "../lib/ai-schema/types";
 import type { GenerateThemeJobData } from "../lib/queue";
 
 const { eq } = require("drizzle-orm");
@@ -38,6 +38,15 @@ const { runStagedGeneration } = require("../lib/ai-schema/generation");
 const { validateCandidate } = require("../lib/ai-schema/validation");
 const { mergeThemeState } = require("../lib/ai-schema/merge");
 const instrumentation = require("../lib/ai-schema/instrumentation");
+
+/** Concatenates every list in two per-template merge summaries into one job-level summary. */
+function combineMergeSummaries(a: MergeSummary, b: MergeSummary): MergeSummary {
+  const combined = {} as MergeSummary;
+  for (const key of Object.keys(a) as (keyof MergeSummary)[]) {
+    combined[key] = [...a[key], ...b[key]];
+  }
+  return combined;
+}
 
 function formatConflicts(conflicts: MergeConflict[]): string {
   return conflicts.map((c) => `[${c.code}] ${c.message}`).join("; ");
@@ -166,18 +175,7 @@ async function processGenerateTheme(jobId: string) {
     }
     const mergeMs = Date.now() - mergeStart;
 
-    const combinedSummary = {
-      changedFiles: [...mergedIndex.summary!.changedFiles, ...mergedProduct.summary!.changedFiles],
-      changedTemplates: [...mergedIndex.summary!.changedTemplates, ...mergedProduct.summary!.changedTemplates],
-      addedSections: [...mergedIndex.summary!.addedSections, ...mergedProduct.summary!.addedSections],
-      updatedSections: [...mergedIndex.summary!.updatedSections, ...mergedProduct.summary!.updatedSections],
-      removedSections: [...mergedIndex.summary!.removedSections, ...mergedProduct.summary!.removedSections],
-      changedSettings: [...mergedIndex.summary!.changedSettings, ...mergedProduct.summary!.changedSettings],
-      preservedUnknownComponents: [
-        ...mergedIndex.summary!.preservedUnknownComponents,
-        ...mergedProduct.summary!.preservedUnknownComponents
-      ]
-    };
+    const combinedSummary = combineMergeSummaries(mergedIndex.summary!, mergedProduct.summary!);
 
     const totalMs = Date.now() - wallClockStart;
     const aiCallCount = generatedIndex.aiCallCount + generatedProduct.aiCallCount;
