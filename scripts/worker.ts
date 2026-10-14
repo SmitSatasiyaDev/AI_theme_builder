@@ -27,6 +27,7 @@ const { db } = require("../db");
 const { generationJobs, shopifyStores } = require("../db/schema");
 const { decryptSecret } = require("../lib/crypto");
 const { errorMessage } = require("../lib/errors");
+const { completeJob, failJob } = require("../lib/jobs");
 const { getBoss, GENERATE_THEME_QUEUE } = require("../lib/queue");
 type GenerateThemeJobData = { jobId: string };
 
@@ -190,65 +191,57 @@ async function processGenerateTheme(jobId: string) {
       outputChars
     });
 
-    await db.update(generationJobs).set({
-      status: "completed",
-      resultJson: {
-        templates: {
-          index: {
-            plan: generatedIndex.plan,
-            config: generatedIndex.config,
-            warnings: generatedIndex.warnings,
-            candidateValidation: indexValidation,
-            planRepaired: generatedIndex.planRepaired,
-            configRepaired: generatedIndex.configRepaired,
-            aiCallCount: generatedIndex.aiCallCount,
-            retryCount: generatedIndex.retryCount,
-            deterministicFixCount: generatedIndex.deterministicFixCount,
-            durationMs: generatedIndex.durationMs,
-            timings: generatedIndex.timings
-          },
-          product: {
-            plan: generatedProduct.plan,
-            config: generatedProduct.config,
-            warnings: generatedProduct.warnings,
-            candidateValidation: productValidation,
-            planRepaired: generatedProduct.planRepaired,
-            configRepaired: generatedProduct.configRepaired,
-            aiCallCount: generatedProduct.aiCallCount,
-            retryCount: generatedProduct.retryCount,
-            deterministicFixCount: generatedProduct.deterministicFixCount,
-            durationMs: generatedProduct.durationMs,
-            timings: generatedProduct.timings
-          }
+    await completeJob(jobId, {
+      templates: {
+        index: {
+          plan: generatedIndex.plan,
+          config: generatedIndex.config,
+          warnings: generatedIndex.warnings,
+          candidateValidation: indexValidation,
+          planRepaired: generatedIndex.planRepaired,
+          configRepaired: generatedIndex.configRepaired,
+          aiCallCount: generatedIndex.aiCallCount,
+          retryCount: generatedIndex.retryCount,
+          deterministicFixCount: generatedIndex.deterministicFixCount,
+          durationMs: generatedIndex.durationMs,
+          timings: generatedIndex.timings
         },
-        mergeSummary: combinedSummary,
-        mergedThemeState: mergedProduct.mergedThemeState,
-        aiCallCount,
-        retryCount,
-        deterministicFixCount,
-        promptChars,
-        outputChars,
-        timings: {
-          retrievalMs: generatedIndex.timings.retrievalMs + generatedProduct.timings.retrievalMs,
-          indexPlanningMs: generatedIndex.timings.planningMs,
-          productPlanningMs: generatedProduct.timings.planningMs,
-          indexConfigurationMs: generatedIndex.timings.configurationMs,
-          productConfigurationMs: generatedProduct.timings.configurationMs,
-          validationMs,
-          mergeMs,
-          totalMs
-        },
-        durationMs: totalMs
+        product: {
+          plan: generatedProduct.plan,
+          config: generatedProduct.config,
+          warnings: generatedProduct.warnings,
+          candidateValidation: productValidation,
+          planRepaired: generatedProduct.planRepaired,
+          configRepaired: generatedProduct.configRepaired,
+          aiCallCount: generatedProduct.aiCallCount,
+          retryCount: generatedProduct.retryCount,
+          deterministicFixCount: generatedProduct.deterministicFixCount,
+          durationMs: generatedProduct.durationMs,
+          timings: generatedProduct.timings
+        }
       },
-      completedAt: new Date()
-    }).where(eq(generationJobs.id, jobId));
+      mergeSummary: combinedSummary,
+      mergedThemeState: mergedProduct.mergedThemeState,
+      aiCallCount,
+      retryCount,
+      deterministicFixCount,
+      promptChars,
+      outputChars,
+      timings: {
+        retrievalMs: generatedIndex.timings.retrievalMs + generatedProduct.timings.retrievalMs,
+        indexPlanningMs: generatedIndex.timings.planningMs,
+        productPlanningMs: generatedProduct.timings.planningMs,
+        indexConfigurationMs: generatedIndex.timings.configurationMs,
+        productConfigurationMs: generatedProduct.timings.configurationMs,
+        validationMs,
+        mergeMs,
+        totalMs
+      },
+      durationMs: totalMs
+    });
   } catch (error) {
     console.error(`[worker] job ${jobId} failed`, error);
-    await db.update(generationJobs).set({
-      status: "failed",
-      errorMessage: errorMessage(error),
-      completedAt: new Date()
-    }).where(eq(generationJobs.id, jobId));
+    await failJob(jobId, errorMessage(error));
   }
 }
 
