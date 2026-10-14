@@ -8,6 +8,7 @@ import { isOrgMember } from "@/lib/organizations";
 import { shopifyStores } from "@/db/schema/shopify";
 import { decryptSecret } from "@/lib/crypto";
 import { errorMessage } from "@/lib/errors";
+import { completeJob, failJob } from "@/lib/jobs";
 import type { ThemeState } from "@/lib/ai-schema/types";
 // apply.js stays plain CommonJS (out of scope — Shopify-facing apply path).
 const { applyThemeState } = require("@/lib/ai-schema/apply");
@@ -71,20 +72,12 @@ export async function POST(req: NextRequest) {
       requestId: applyJob.id
     });
 
-    await db.update(generationJobs).set({
-      status: "completed",
-      resultJson: result,
-      completedAt: new Date()
-    }).where(eq(generationJobs.id, applyJob.id));
+    await completeJob(applyJob.id, result);
 
     return NextResponse.json({ applyJobId: applyJob.id, ...result });
   } catch (error) {
     const message = errorMessage(error);
-    await db.update(generationJobs).set({
-      status: "failed",
-      errorMessage: message,
-      completedAt: new Date()
-    }).where(eq(generationJobs.id, applyJob.id));
+    await failJob(applyJob.id, message);
 
     return jsonError(message, 502);
   }

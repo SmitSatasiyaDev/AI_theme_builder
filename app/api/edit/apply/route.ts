@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
 import { auth } from "@/lib/auth";
@@ -6,6 +5,7 @@ import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { errorMessage } from "@/lib/errors";
+import { completeJob, failJob } from "@/lib/jobs";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
 import { loadSchemas } from "@/lib/ai-schema/ai-client";
@@ -103,11 +103,7 @@ export async function POST(req: NextRequest) {
 
     if (!executed.valid) {
       const message = executed.errors.map((e) => e.message).join("; ");
-      await db.update(generationJobs).set({
-        status: "failed",
-        errorMessage: message,
-        completedAt: new Date()
-      }).where(eq(generationJobs.id, applyJob.id));
+      await failJob(applyJob.id, message);
       return jsonError(`This change no longer applies to the current theme (it may have changed since you proposed this edit): ${message}`, 409);
     }
 
@@ -125,20 +121,12 @@ export async function POST(req: NextRequest) {
       requestId: applyJob.id
     });
 
-    await db.update(generationJobs).set({
-      status: "completed",
-      resultJson: result,
-      completedAt: new Date()
-    }).where(eq(generationJobs.id, applyJob.id));
+    await completeJob(applyJob.id, result);
 
     return NextResponse.json({ applyJobId: applyJob.id, ...result });
   } catch (error) {
     const message = errorMessage(error);
-    await db.update(generationJobs).set({
-      status: "failed",
-      errorMessage: message,
-      completedAt: new Date()
-    }).where(eq(generationJobs.id, applyJob.id));
+    await failJob(applyJob.id, message);
 
     return jsonError(message, 502);
   }
