@@ -12,53 +12,53 @@ import { getThemeRoot } from "@/lib/ai-schema/local-theme-fs";
 // files (CSS, JS, demo images, fonts) — not per-tenant or otherwise sensitive data.
 
 const CONTENT_TYPES: Record<string, string> = {
-    ".css": "text/css; charset=utf-8",
-    ".js": "application/javascript; charset=utf-8",
-    ".json": "application/json; charset=utf-8",
-    ".svg": "image/svg+xml",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".avif": "image/avif",
-    ".woff": "font/woff",
-    ".woff2": "font/woff2",
-    ".ttf": "font/ttf",
-    ".ico": "image/x-icon"
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".ico": "image/x-icon",
 };
 
 export async function GET(
-    _req: NextRequest,
-    { params }: { params: Promise<{ path: string[] }> }
+  _req: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-    const { path: segments } = await params;
-    const relative = segments.join("/");
+  const { path: segments } = await params;
+  const relative = segments.join("/");
 
-    let root: string;
-    try {
-        root = await getThemeRoot();
-    } catch (error) {
-        return jsonError((error as Error).message, 500);
-    }
+  let root: string;
+  try {
+    root = await getThemeRoot();
+  } catch (error) {
+    return jsonError((error as Error).message, 500);
+  }
 
-    const resolved = path.resolve(root, relative);
-    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-        return jsonError("Invalid asset path", 400);
-    }
+  const resolved = path.resolve(root, relative);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    return jsonError("Invalid asset path", 400);
+  }
 
-    let data: Buffer;
-    try {
-        data = await fs.readFile(resolved);
-    } catch {
-        return jsonError("Asset not found", 404);
-    }
+  let data: Buffer;
+  try {
+    data = await fs.readFile(resolved);
+  } catch {
+    return jsonError("Asset not found", 404);
+  }
 
-    const ext = path.extname(resolved).toLowerCase();
-    return new NextResponse(new Uint8Array(data), {
-        headers: {
-            "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
-            "Cache-Control": "public, max-age=3600"
-        }
-    });
+  const ext = path.extname(resolved).toLowerCase();
+  return new NextResponse(new Uint8Array(data), {
+    headers: {
+      "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
 }
