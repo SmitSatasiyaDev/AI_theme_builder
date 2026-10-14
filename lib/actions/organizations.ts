@@ -16,6 +16,24 @@ function slugify(name: string): string {
   );
 }
 
+async function slugExists(slug: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.slug, slug))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** `baseSlug`, or `baseSlug-2`, `baseSlug-3`, ... — the first one not already taken. */
+async function uniqueSlug(baseSlug: string): Promise<string> {
+  let slug = baseSlug;
+  for (let suffix = 2; await slugExists(slug); suffix++) {
+    slug = `${baseSlug}-${suffix}`;
+  }
+  return slug;
+}
+
 export async function createOrganization(formData: FormData) {
   const session = await auth();
   const userId = session?.user?.id;
@@ -28,13 +46,7 @@ export async function createOrganization(formData: FormData) {
     throw new Error("Organization name is required");
   }
 
-  const baseSlug = slugify(name);
-  let slug = baseSlug;
-  let suffix = 1;
-  while (await db.select().from(organizations).where(eq(organizations.slug, slug)).limit(1).then((r) => r.length > 0)) {
-    suffix += 1;
-    slug = `${baseSlug}-${suffix}`;
-  }
+  const slug = await uniqueSlug(slugify(name));
 
   const [org] = await db
     .insert(organizations)
