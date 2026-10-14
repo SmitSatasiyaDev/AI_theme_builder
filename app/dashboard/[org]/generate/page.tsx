@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { getAsset, getMainThemeId } from "@/lib/ai-schema/local-theme-fs";
@@ -18,7 +18,7 @@ export default async function GeneratePage({ params }: { params: Promise<{ org: 
     redirect("/sign-in");
   }
 
-  const membership = await requireOrgMembership(orgSlug, userId);
+  const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
     redirect("/dashboard");
   }

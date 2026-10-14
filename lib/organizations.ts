@@ -14,7 +14,8 @@ export async function getUserOrganizations(userId: string) {
     .where(eq(organizationMembers.userId, userId));
 }
 
-export async function requireOrgMembership(orgSlug: string, userId: string) {
+/** The user's membership in the org with this slug, or null if they aren't a member. */
+export async function getOrgMembership(orgSlug: string, userId: string) {
   const [row] = await db
     .select({ org: organizations, role: organizationMembers.role })
     .from(organizations)

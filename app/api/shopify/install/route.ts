@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 import { OAUTH_NONCE_COOKIE, createOAuthState } from "@/lib/shopify/state";
 import { isValidShopDomain } from "@/lib/shopify/shop-domain";
 
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/sign-in", req.url));
   }
 
-  const membership = await requireOrgMembership(orgSlug, userId);
+  const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
   }

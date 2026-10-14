@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { db } from "@/db";
 import { generationJobs } from "@/db/schema/generation";
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "org and message are required" }, { status: 400 });
   }
 
-  const membership = await requireOrgMembership(orgSlug, userId);
+  const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
   }

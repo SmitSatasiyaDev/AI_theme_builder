@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 
 export default async function OrgLayout({
   children,
@@ -17,7 +17,7 @@ export default async function OrgLayout({
     redirect("/sign-in");
   }
 
-  const membership = await requireOrgMembership(orgSlug, userId);
+  const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
     notFound();
   }

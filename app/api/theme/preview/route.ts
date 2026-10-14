@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 import { getRepresentativeProductForOrg, getStoreForOrg, type ShopifyPreviewProduct } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { getAsset, getMainThemeId } from "@/lib/ai-schema/local-theme-fs";
@@ -29,7 +29,7 @@ function isGenerationConfig(value: unknown): value is GenerationConfig {
 
 async function resolveStore(orgSlug: string | undefined, userId: string) {
     if (!orgSlug) return { error: NextResponse.json({ error: "org is required" }, { status: 400 }) } as const;
-    const membership = await requireOrgMembership(orgSlug, userId);
+    const membership = await getOrgMembership(orgSlug, userId);
     if (!membership) {
         return { error: NextResponse.json({ error: "Not a member of this organization" }, { status: 403 }) } as const;
     }

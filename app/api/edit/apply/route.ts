@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg } from "@/lib/shopify/client";
 import { decryptSecret } from "@/lib/crypto";
 import { errorMessage } from "@/lib/errors";
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "org and sessionId are required" }, { status: 400 });
   }
 
-  const membership = await requireOrgMembership(orgSlug, userId);
+  const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
   }

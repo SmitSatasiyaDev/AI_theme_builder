@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { requireOrgMembership } from "@/lib/organizations";
+import { getOrgMembership } from "@/lib/organizations";
 import { getStoreForOrg, getProductsForOrg } from "@/lib/shopify/client";
 import { SHOP_DOMAIN_PATTERN } from "@/lib/shopify/shop-domain";
 
@@ -12,7 +12,7 @@ export default async function StoresPage({ params }: { params: Promise<{ org: st
     redirect("/sign-in");
   }
 
-  const membership = await requireOrgMembership(orgSlug, userId);
+  const membership = await getOrgMembership(orgSlug, userId);
   if (!membership) {
     redirect("/dashboard");
   }
