@@ -71,11 +71,16 @@ export async function getThemeRoot(): Promise<string> {
     return resolved;
 }
 
+/** True when `candidate` (an absolute, resolved path) is `root` itself or lies inside it. */
+export function isPathInside(root: string, candidate: string): boolean {
+    return candidate === root || candidate.startsWith(root + path.sep);
+}
+
 async function resolveAssetPath(key: string): Promise<string> {
     const root = await getThemeRoot();
     const normalized = key.replace(/\\/g, "/");
     const resolved = path.resolve(root, normalized);
-    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    if (!isPathInside(root, resolved)) {
         throw new Error(`Refusing to resolve theme asset key outside ${ENV_VAR}: "${key}"`);
     }
     return resolved;

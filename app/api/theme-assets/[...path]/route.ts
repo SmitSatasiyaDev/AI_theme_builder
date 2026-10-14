@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
 import fs from "fs/promises";
 import path from "path";
-import { getThemeRoot } from "@/lib/ai-schema/local-theme-fs";
+import { getThemeRoot, isPathInside } from "@/lib/ai-schema/local-theme-fs";
 
 // Serves the theme checkout's own static files (assets/*, images/*) so the Liquid preview
 // renderer's asset_url/image_url filters (lib/shopify-compat/filters.ts) resolve to something
@@ -43,7 +43,7 @@ export async function GET(
   }
 
   const resolved = path.resolve(root, relative);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+  if (!isPathInside(root, resolved)) {
     return jsonError("Invalid asset path", 400);
   }
 
