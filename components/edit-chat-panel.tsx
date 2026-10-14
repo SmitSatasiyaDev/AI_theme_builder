@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Field } from "@base-ui/react/field";
 import { errorMessage } from "@/lib/errors";
+import { useThinkingStage } from "./use-thinking-stage";
 
 type EditTurnResult = {
   sessionId: string;
@@ -41,7 +42,6 @@ const APPLIABLE_STATUSES = new Set(["PROPOSED", "COMPLETED"]);
 // (resolve target -> pick/propose a section op -> validate against the schema), cycled on a
 // timer purely so the chat doesn't sit blank while the request is in flight.
 const THINKING_STAGES = ["Reading your theme…", "Deciding on a section…", "Generating the change…", "Checking it fits…"];
-const THINKING_STAGE_INTERVAL_MS = 1400;
 
 // Surfaces edit-pipeline.ts's existing add_section operation, which most merchants have no way
 // to know exists — nothing in the chat hints that "add a section" is a supported request. A
@@ -146,22 +146,7 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMoreSections, setShowMoreSections] = useState(false);
-  const [thinkingStage, setThinkingStage] = useState(0);
-  const thinkingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (sending) {
-      thinkingTimer.current = setInterval(() => {
-        setThinkingStage((i) => (i + 1) % THINKING_STAGES.length);
-      }, THINKING_STAGE_INTERVAL_MS);
-    } else if (thinkingTimer.current) {
-      clearInterval(thinkingTimer.current);
-      thinkingTimer.current = null;
-    }
-    return () => {
-      if (thinkingTimer.current) clearInterval(thinkingTimer.current);
-    };
-  }, [sending]);
+  const [thinkingStage, resetThinkingStage] = useThinkingStage(sending, THINKING_STAGES.length);
 
   async function submitMessage(text: string) {
     if (!text || sending) return;
@@ -170,7 +155,7 @@ export function EditChatPanel({ orgSlug, templateName, onApplied, onRequestFullG
     setApplyMessage(null);
     setMessages((prev) => [...prev, { role: "user", text }]);
     setInput("");
-    setThinkingStage(0);
+    resetThinkingStage();
     setSending(true);
 
     try {

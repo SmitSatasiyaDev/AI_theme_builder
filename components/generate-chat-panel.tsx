@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { Field } from "@base-ui/react/field";
 import { fetcher } from "@/lib/fetcher";
 import { errorMessage } from "@/lib/errors";
 import type { GenerationConfig, PreviewConfigByTemplate } from "./theme-preview-panel";
+import { useThinkingStage } from "./use-thinking-stage";
 
 type TemplateResult = {
   plan: { order: string[]; sections: Record<string, { type: string; blockTypes?: string[] }> };
@@ -51,28 +52,6 @@ type ChatMessage = {
 // chat doesn't sit blank/static while work is happening.
 const INTAKE_THINKING_STAGES = ["Reading your answer…", "Thinking it through…"];
 const JOB_THINKING_STAGES = ["Deciding on sections…", "Generating section content…", "Assembling your homepage…"];
-const THINKING_STAGE_INTERVAL_MS = 1400;
-
-function useThinkingStage(active: boolean, stageCount: number): [number, () => void] {
-  const [stage, setStage] = useState(0);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (active) {
-      timer.current = setInterval(() => setStage((i) => (i + 1) % stageCount), THINKING_STAGE_INTERVAL_MS);
-    } else if (timer.current) {
-      clearInterval(timer.current);
-      timer.current = null;
-    }
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
-
-  return [stage, () => setStage(0)];
-}
-
 function StatusBadge({ status }: { status: GenerateJob["status"] }) {
   const styles: Record<GenerateJob["status"], string> = {
     queued: "bg-gray-100 text-gray-700",
