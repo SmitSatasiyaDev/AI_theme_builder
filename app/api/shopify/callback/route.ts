@@ -52,19 +52,20 @@ export async function GET(req: NextRequest) {
     scope: string;
   };
 
+  const accessTokenEncrypted = encryptSecret(accessToken);
   await db
     .insert(shopifyStores)
     .values({
       orgId: verified.orgId,
       shopDomain: shop,
-      accessTokenEncrypted: encryptSecret(accessToken),
+      accessTokenEncrypted,
       scopes: scope,
     })
     .onConflictDoUpdate({
       target: shopifyStores.shopDomain,
       set: {
         orgId: verified.orgId,
-        accessTokenEncrypted: encryptSecret(accessToken),
+        accessTokenEncrypted,
         scopes: scope,
         uninstalledAt: null,
       },
