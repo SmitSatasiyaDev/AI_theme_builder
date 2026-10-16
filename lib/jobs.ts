@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
-import { db } from "../db";
-import { generationJobs } from "../db/schema/generation";
+import { db } from "@/db";
+import { generationJobs } from "@/db/schema/generation";
 
 /** Marks a generation/apply job as successfully finished with its result. */
 export async function completeJob(jobId: string, resultJson: unknown): Promise<void> {
