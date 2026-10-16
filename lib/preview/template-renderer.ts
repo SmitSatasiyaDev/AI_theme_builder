@@ -1,12 +1,12 @@
 import type { Liquid } from "liquidjs";
 import { createShopifyLiquid } from "@/lib/shopify-compat/engine";
-import { BlockInstance, buildGlobalContext, buildProductDrop, buildSectionDrop } from "@/lib/shopify-compat/drops";
+import { type BlockInstance, buildGlobalContext, buildProductDrop, buildSectionDrop } from "@/lib/shopify-compat/drops";
 import type { ShopifyPreviewProduct } from "@/lib/shopify/client";
-import { TemplateReader } from "./template-loader";
+import type { TemplateReader } from "./template-loader";
 import { applyPreviewShims } from "./preview-shims";
 import { loadThemeSettings } from "./theme-settings";
-import { extractSectionSchema, ShopifySettingDef } from "./section-schema";
-import { ResolveContext, defaultResolveContext, resolveSettings } from "@/lib/shopify-compat/resolve-settings";
+import { extractSectionSchema, type ShopifySettingDef } from "./section-schema";
+import { type ResolveContext, defaultResolveContext, resolveSettings } from "@/lib/shopify-compat/resolve-settings";
 import { defaultLinkLists } from "@/lib/shopify-compat/setting-drops";
 import { normalizeRenderTagArgs } from "@/lib/shopify-compat/render-args";
 import type { GenerationConfig, SectionInstance } from "@/lib/ai-schema/types";
