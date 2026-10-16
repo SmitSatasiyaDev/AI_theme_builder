@@ -1,4 +1,4 @@
-import { TemplateReader } from "./template-loader";
+import type { TemplateReader } from "./template-loader";
 
 // The preview reads each section's own `{% schema %}` block — the real Shopify schema that
 // ships inside the .liquid file — to know how to resolve its settings for rendering (see
