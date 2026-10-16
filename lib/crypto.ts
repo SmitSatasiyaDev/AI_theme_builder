@@ -4,8 +4,13 @@ import { requireEnv } from "./env";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 
+let cachedKey: Buffer | null = null;
+
 function getKey(): Buffer {
-  return scryptSync(requireEnv("ENCRYPTION_KEY"), "ai-schema-saas", 32);
+  if (!cachedKey) {
+    cachedKey = scryptSync(requireEnv("ENCRYPTION_KEY"), "ai-schema-saas", 32);
+  }
+  return cachedKey;
 }
 
 // Encrypts a secret (e.g. a Shopify access token) for storage at rest.
