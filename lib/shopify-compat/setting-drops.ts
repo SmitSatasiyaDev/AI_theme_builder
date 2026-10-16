@@ -1,5 +1,5 @@
 import { Drop } from "liquidjs";
-import { parseColor, formatColor, Rgb } from "./color";
+import { parseColor, formatColor, type Rgb } from "./color";
 
 // Shopify resolves typed settings before Liquid ever sees them: a `color` setting is a Color
 // object with `.red`/`.green`/`.blue`, an `image_picker` is an Image with `.aspect_ratio`, a
