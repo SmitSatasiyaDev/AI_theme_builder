@@ -58,6 +58,7 @@ import * as instrumentation from "./instrumentation";
 import { loadSchemas } from "./ai-client";
 import { getAsset } from "./local-theme-fs";
 import { db } from "@/db";
+import { errorMessage } from "@/lib/errors";
 import { themeStates } from "@/db/schema/generation";
 import type {
     GenerationContext,
@@ -269,7 +270,7 @@ export async function buildThemeState(options: BuildThemeStateOptions): Promise<
         try {
             parsed = JSON.parse(asset.value);
         } catch (error) {
-            unparseableTemplates.push({ name, sourceFile, error: (error as Error).message });
+            unparseableTemplates.push({ name, sourceFile, error: errorMessage(error) });
             continue;
         }
         templates[name] = {
@@ -286,7 +287,7 @@ export async function buildThemeState(options: BuildThemeStateOptions): Promise<
         try {
             globalSettings = { sourceFile: SETTINGS_SOURCE_FILE, raw: JSON.parse(settingsAsset.value) };
         } catch (error) {
-            globalSettingsError = (error as Error).message;
+            globalSettingsError = errorMessage(error);
         }
     }
 
