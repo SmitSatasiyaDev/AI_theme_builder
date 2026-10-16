@@ -35,7 +35,7 @@ export const SESSION_STATES = Object.freeze({
     FAILED: "FAILED"
 });
 
-const CANCEL_PHRASES = ["cancel", "never mind", "nevermind", "start over", "forget it", "reset", "nvm"];
+const CANCEL_PHRASES = new Set(["cancel", "never mind", "nevermind", "start over", "forget it", "reset", "nvm"]);
 
 function normalize(text: string | undefined): string {
     return (text || "").trim().toLowerCase().replace(/[.!]+$/, "");
@@ -43,7 +43,7 @@ function normalize(text: string | undefined): string {
 
 export function isCancelMessage(message: string | undefined): boolean {
     const normalized = normalize(message);
-    return CANCEL_PHRASES.includes(normalized);
+    return CANCEL_PHRASES.has(normalized);
 }
 
 export function computeThemeStateVersion(themeState: ThemeState): string {
