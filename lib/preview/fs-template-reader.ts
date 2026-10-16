@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getThemeRoot } from "@/lib/ai-schema/local-theme-fs";
-import { TemplateReader } from "./template-loader";
+import type { TemplateReader } from "./template-loader";
 
 /**
  * Reads theme .liquid/.json source files straight off LOCAL_THEME_ROOT — the same on-disk
