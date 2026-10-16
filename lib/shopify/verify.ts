@@ -8,7 +8,7 @@ export function verifyShopifyHmac(params: URLSearchParams, secret: string): bool
 
   const message = Array.from(params.entries())
     .filter(([key]) => key !== "hmac" && key !== "signature")
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
     .join("&");
 
