@@ -49,7 +49,7 @@ export const BRIEF_FIELDS = [
     "additionalRequirements"
 ];
 
-export const BLOCKING_FIELD_KEYS = ["businessType"];
+export const BLOCKING_FIELD_KEYS = ["businessType"] as const;
 
 const VALID_STATUSES = new Set<BriefFieldStatus>(["confirmed", "inferred", "missing"]);
 
