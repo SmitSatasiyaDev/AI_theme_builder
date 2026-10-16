@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
+import { errorMessage } from "@/lib/errors";
 import fs from "fs/promises";
 import path from "path";
 import { getThemeRoot, isPathInside } from "@/lib/ai-schema/local-theme-fs";
@@ -39,7 +40,7 @@ export async function GET(
   try {
     root = await getThemeRoot();
   } catch (error) {
-    return jsonError((error as Error).message, 500);
+    return jsonError(errorMessage(error), 500);
   }
 
   const resolved = path.resolve(root, relative);
