@@ -19,10 +19,10 @@ interface ThemePreviewPanelProps {
   onActiveTemplateChange: (templateName: string) => void;
 }
 
-const TABS: { key: string; label: string }[] = [
+const TABS = [
   { key: "index", label: "Home" },
   { key: "product", label: "Product" }
-];
+] as const;
 
 type PreviewKey = [string, string, string, GenerationConfig | null, number];
 
