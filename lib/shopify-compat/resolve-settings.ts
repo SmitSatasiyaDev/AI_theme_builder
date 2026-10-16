@@ -1,4 +1,4 @@
-import { ShopifySettingDef } from "@/lib/preview/section-schema";
+import type { ShopifySettingDef } from "@/lib/preview/section-schema";
 import { ColorDrop, FontDrop, ImageDrop, LinkListDrop, defaultLinkLists } from "./setting-drops";
 
 // Turns the raw values stored in template JSON / settings_data.json into the objects the
@@ -69,13 +69,12 @@ export function resolveSettings(
   schema: ShopifySettingDef[] | undefined,
   ctx: ResolveContext,
 ): Record<string, unknown> {
-  const values = { ...(raw ?? {}) };
-  if (!schema) return values;
+  const resolved: Record<string, unknown> = { ...(raw ?? {}) };
+  if (!schema) return resolved;
 
-  const resolved: Record<string, unknown> = { ...values };
   for (const setting of schema) {
     if (!setting.id) continue;
-    const value = setting.id in values ? values[setting.id] : setting.default;
+    const value = setting.id in resolved ? resolved[setting.id] : setting.default;
     resolved[setting.id] = resolveOne(setting.type, value, ctx);
   }
   return resolved;
