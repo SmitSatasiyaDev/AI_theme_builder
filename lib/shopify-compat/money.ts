@@ -21,9 +21,16 @@ function group(value: string): string {
   return whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (fraction ? `.${fraction}` : "");
 }
 
+export interface FormatMoneyOptions {
+  currency?: string;
+  trailingZeros?: boolean;
+  symbol?: boolean;
+  withCode?: boolean;
+}
+
 export function formatMoney(
   cents: unknown,
-  { currency = "USD", trailingZeros = true, symbol = true, withCode = false } = {},
+  { currency = "USD", trailingZeros = true, symbol = true, withCode = false }: FormatMoneyOptions = {},
 ): string {
   const n = typeof cents === "number" ? cents : Number.parseFloat(String(cents));
   if (!Number.isFinite(n)) return "";
