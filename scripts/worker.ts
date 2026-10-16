@@ -105,7 +105,7 @@ async function processGenerateTheme(jobId: string) {
     // Written by app/api/generate/chat/route.ts as JSON.stringify(brief)
     // once the intake conversation has gathered enough to generate.
     const brief = JSON.parse(job.inputPrompt || "{}") as Brief;
-    const templateNames = ["index", "product"];
+    const templateNames = ["index", "product"] as const;
 
     // Both templates are independent generations against the same brief (the brief already
     // carries a "products" field the product template's Stage 2 can use) — running them
