@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const THINKING_STAGE_INTERVAL_MS = 1400;
 
@@ -26,5 +26,7 @@ export function useThinkingStage(active: boolean, stageCount: number): [number, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  return [stage, () => setStage(0)];
+  const resetStage = useCallback(() => setStage(0), []);
+
+  return [stage, resetStage];
 }
