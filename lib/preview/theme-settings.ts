@@ -1,4 +1,4 @@
-import { TemplateReader } from "./template-loader";
+import type { TemplateReader } from "./template-loader";
 
 // Resolving the theme's `settings` object the way Shopify does. Ported verbatim from the
 // Shopforge preview renderer.
