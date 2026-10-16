@@ -9,6 +9,8 @@ import { renderTemplate } from "@/lib/preview/template-renderer";
 import { createLocalThemeReader } from "@/lib/preview/fs-template-reader";
 import type { GenerationConfig } from "@/lib/ai-schema/types";
 
+const DEFAULT_TEMPLATE = "index";
+
 /**
  * Best-effort: sections/blocks that read `product` (price, gallery, buy buttons, "only intended
  * for product pages" guards) shouldn't blank the whole preview just because the store has no
@@ -71,7 +73,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const orgSlug = searchParams.get("org") ?? undefined;
-  const templateName = searchParams.get("template") || "index";
+  const templateName = searchParams.get("template") || DEFAULT_TEMPLATE;
 
   const resolved = await resolveStore(orgSlug, userId);
   if ("error" in resolved) return resolved.error;
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const orgSlug = body?.org as string | undefined;
-  const templateName = (body?.templateName as string | undefined) || "index";
+  const templateName = (body?.templateName as string | undefined) || DEFAULT_TEMPLATE;
   const config = body?.config;
 
   if (!isGenerationConfig(config)) {
